@@ -2,7 +2,7 @@ import {createAuthClient,BetterAuthVanillaAdapter} from './auth-sdk.mjs';
 import {AUTH_URL} from './cloud-config.mjs';
 import {fresh,clone} from './engine.mjs';
 import {SyncStore} from './sync-core.mjs';
-const auth=createAuthClient(AUTH_URL,{adapter:BetterAuthVanillaAdapter({fetchOptions:{credentials:'include'}})}),ID='mantou-training-account',PREFIX='mantou-training-account:';
+const auth=AUTH_URL?createAuthClient(AUTH_URL,{adapter:BetterAuthVanillaAdapter({fetchOptions:{credentials:'include'}})}):null,ID='mantou-training-account',PREFIX='mantou-training-account:';
 const node=(tag,text)=>{const e=document.createElement(tag);if(text)e.textContent=text;return e;};
 export function mountCloud({guest,apply,notify}){
   let ownsWindow=!navigator.locks,identity=null,store=null,busy=false,message='未登录 · 记录保存在本机',timer;
@@ -14,7 +14,7 @@ export function mountCloud({guest,apply,notify}){
   function update(){if(store)apply(clone(store.data.local),true);draw();}
   async function transport(accountId,method,body){const t=await auth.token();if(t.error||!t.data?.token)throw Error('需要联网重新登录；待同步记录仍保留');const response=await fetch('/api/sync',{method,cache:'no-store',headers:{'X-Account-Id':accountId,Authorization:'Bearer '+t.data.token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15000)});if(response.status===409)return {conflict:true};let data;try{data=await response.json();}catch{throw Error('同步接口未就绪；本机记录仍保留');}if(!response.ok)throw Error(data.error||'同步暂不可用');return data;}
   async function sync(){
-    if(!ownsWindow||!store||busy||document.querySelector('dialog[open]'))return;
+    if(!auth||!ownsWindow||!store||busy||document.querySelector('dialog[open]'))return;
     
     if(!navigator.onLine){setMessage('离线 · '+(store.data.pending?'有待同步记录':'显示上次同步的数据'));return;}
     const target=store,accountId=identity.id;busy=true;setMessage('正在同步…');
@@ -25,6 +25,7 @@ export function mountCloud({guest,apply,notify}){
   const schedule=()=>{clearTimeout(timer);timer=setTimeout(sync,800);};
   function draw(){
     content.replaceChildren();
+    if(!auth){content.append(node('p','此部署使用本机模式。记录可离线保存、导出与恢复；邮箱同步需由部署者配置。'));return;}
     if(identity&&store){
       content.append(node('p',identity.email));
       const now=node('button','立即同步');now.className='btn secondary';now.onclick=sync;content.append(now);
@@ -47,6 +48,7 @@ export function mountCloud({guest,apply,notify}){
     form.append(hint,email,send,code,submit);content.append(form);
   }
   function download(value,name){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'})),a=node('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  if(!auth)identity=null;
   if(identity){try{activate(identity);setMessage('已载入账号本机缓存 · 等待同步');}catch(e){identity=null;store=null;setMessage('账号缓存读取失败，请保留备份后重新登录');}}
   draw();setMessage(message);
   window.addEventListener('storage',e=>{if(e.key===ID||(store&&e.key===store.key))setMessage('另一个窗口已更新数据 · 请刷新后继续，未提交输入请先保留');});document.addEventListener('close',()=>{if(store){update();schedule();}},true);window.addEventListener('online',schedule);window.addEventListener('offline',()=>setMessage('离线 · 新记录会在联网后同步'));

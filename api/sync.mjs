@@ -1,11 +1,12 @@
 import {neon} from '@neondatabase/serverless';
 import {createRemoteJWKSet,jwtVerify} from 'jose';
 import {validateBackup} from '../dist/engine.mjs';
-import {AUTH_URL} from '../dist/cloud-config.mjs';
-const keys=createRemoteJWKSet(new URL(AUTH_URL+'/.well-known/jwks.json'));
+const AUTH_URL=(process.env.AUTH_URL||'').trim().replace(/\/$/,'');
+const keys=AUTH_URL?createRemoteJWKSet(new URL(AUTH_URL+'/.well-known/jwks.json')):null;
 export default async function handler(req,res){
   res.setHeader('Cache-Control','no-store');
   if(!['GET','PUT'].includes(req.method)){res.setHeader('Allow','GET, PUT');return res.status(405).json({error:'Method not allowed'});}
+  if(!keys)return res.status(503).json({error:'此部署未启用邮箱同步，记录可保存在本机'});
   let user;
   try{const token=/^Bearer (\S+)$/.exec(req.headers.authorization||'')?.[1];if(!token)throw Error();const origin=new URL(AUTH_URL).origin;const {payload}=await jwtVerify(token,keys,{issuer:origin,audience:origin,algorithms:['EdDSA']});if(!payload.sub||payload.role!=='authenticated'||payload.banned||typeof payload.email!=='string')throw Error();user=payload.sub;}catch{return res.status(401).json({error:'请重新登录邮箱账号'});}
   if(req.headers['x-account-id']!==user)return res.status(401).json({error:'账号已切换，请重新同步'});

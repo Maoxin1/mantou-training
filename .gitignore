@@ -10,3 +10,7 @@ Thumbs.db
 .openai/*token*
 coverage/
 dist/auth-sdk.mjs
+.vercel/
+.env*.json
+dist/cloud-config.mjs
+.openai/

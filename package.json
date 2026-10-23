@@ -17,5 +17,21 @@
     "@neondatabase/serverless": "^1.2.0",
     "esbuild": "^0.28.2",
     "jose": "^6.2.13"
-  }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Maoxin1/mantou-training.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Maoxin1/mantou-training/issues"
+  },
+  "homepage": "https://github.com/Maoxin1/mantou-training#readme",
+  "keywords": [
+    "pwa",
+    "offline-first",
+    "workout",
+    "obsidian",
+    "training"
+  ]
 }
