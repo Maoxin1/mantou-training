@@ -5,22 +5,23 @@ import {SyncStore} from './sync-core.mjs';
 const auth=createAuthClient(AUTH_URL,{adapter:BetterAuthVanillaAdapter({fetchOptions:{credentials:'include'}})}),ID='mantou-training-account',PREFIX='mantou-training-account:';
 const node=(tag,text)=>{const e=document.createElement(tag);if(text)e.textContent=text;return e;};
 export function mountCloud({guest,apply,notify}){
-  let identity=null,store=null,busy=false,message='未登录 · 记录保存在本机',timer;
+  let ownsWindow=!navigator.locks,identity=null,store=null,busy=false,message='未登录 · 记录保存在本机',timer;
   try{identity=JSON.parse(localStorage.getItem(ID)||'null');}catch{}
   const section=node('details');section.className='card cloud-panel';section.style.margin='12px 0';
-  const summary=node('summary','邮箱账号与同步'),status=node('p',message),content=node('div');status.setAttribute('role','status');section.append(summary,status,content);document.querySelector('header').after(section);
+  const summary=node('summary','邮箱账号与同步'),status=node('p',message),content=node('div');status.setAttribute('role','status');section.append(summary,content);document.querySelector('header').after(status,section);status.className='callout';
   function setMessage(text){message=text;status.textContent=text;}
   function activate(user){identity={id:user.id,email:user.email};store=new SyncStore({storage:localStorage,key:PREFIX+user.id,initial:fresh()});localStorage.setItem(ID,JSON.stringify(identity));apply(clone(store.data.local),true);draw();}
   function update(){if(store)apply(clone(store.data.local),true);draw();}
   async function transport(accountId,method,body){const t=await auth.token();if(t.error||!t.data?.token)throw Error('需要联网重新登录；待同步记录仍保留');const response=await fetch('/api/sync',{method,cache:'no-store',headers:{'X-Account-Id':accountId,Authorization:'Bearer '+t.data.token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15000)});if(response.status===409)return {conflict:true};let data;try{data=await response.json();}catch{throw Error('同步接口未就绪；本机记录仍保留');}if(!response.ok)throw Error(data.error||'同步暂不可用');return data;}
   async function sync(){
-    if(!store||busy||document.querySelector('dialog[open]'))return;
+    if(!ownsWindow||!store||busy||document.querySelector('dialog[open]'))return;
     if(store.data.conflict){setMessage('存在冲突 · 请展开选择版本');return;}
     if(!navigator.onLine){setMessage('离线 · '+(store.data.pending?'有待同步记录':'显示上次同步的数据'));return;}
     const target=store,accountId=identity.id;busy=true;setMessage('正在同步…');
-    try{const result=await target.sync((method,body)=>transport(accountId,method,body));if(store!==target)return;update();setMessage(result==='conflict'?'存在冲突 · 请展开选择版本':result==='pending'?'已保存本机 · 等待再次同步':'已与云端同步 · '+new Date().toLocaleTimeString());}
+    try{const result=await target.sync((method,body)=>transport(accountId,method,body));if(store!==target)return;if(!document.querySelector('dialog[open]'))update();setMessage(result==='conflict'?'存在冲突 · 请展开选择版本':result==='pending'?'已保存本机 · 等待再次同步':'已与云端同步 · '+new Date().toLocaleTimeString());}
     catch(e){if(store===target)setMessage(e.message||'同步失败 · 本机记录仍保留');}finally{busy=false;}
   }
+  if(navigator.locks)navigator.locks.request('mantou-training-editor',{ifAvailable:true},lock=>{if(!lock){setMessage('另一窗口正在使用训练卡 · 请关闭另一窗口后刷新，本窗口暂不可编辑');return;}ownsWindow=true;schedule();return new Promise(()=>{});});
   const schedule=()=>{clearTimeout(timer);timer=setTimeout(sync,800);};
   function draw(){
     content.replaceChildren();
@@ -28,9 +29,9 @@ export function mountCloud({guest,apply,notify}){
       content.append(node('p',identity.email));
       const now=node('button','立即同步');now.className='btn secondary';now.onclick=sync;content.append(now);
       const hasGuest=Object.values(guest().exercises).some(e=>e.records.length||e.changes.length||e.validation||e.blocked);
-      if(hasGuest){const migrate=node('button','将此浏览器原有记录迁入账号');migrate.className='btn secondary';migrate.onclick=()=>{if(!confirm('先导出原有记录备份。迁入将与云端比较；同一动作有不同版本时需要选择。继续？'))return;store.edit(guest());update();schedule();};content.append(migrate);}
+      if(hasGuest){const migrate=node('button','将此浏览器原有记录迁入账号');migrate.className='btn secondary';migrate.onclick=()=>{if(!confirm('先导出原有记录备份。迁入将与云端比较；同一动作有不同版本时需要选择。继续？'))return;store.import(guest());update();schedule();};content.append(migrate);}
       if(store.data.conflict){
-        const c=store.data.conflict,choices={};content.append(node('p','两台设备修改了同一项目。选择后会保存双方版本备份，再同步所选内容。'));
+        const c=store.data.conflict,choices={};content.append(node('p','两台设备修改了同一项目。不同日期的记录会保留；请选择有分歧的计划或同日记录。继续训练仍可保存本机。'));
         for(const item of c.conflicts){const label=node('label',item.key.startsWith('exercise:')?c.merged.exercises[item.key.slice(9)].name:item.key),select=node('select');select.className='text-input';for(const [v,t]of [['','请选择'],['local','此设备版本'],['remote','云端／另一设备版本']]){const o=node('option',t);o.value=v;select.append(o);}select.onchange=()=>choices[item.key]=select.value;label.append(select);content.append(label);if(item.key.startsWith('exercise:'))content.append(node('p',`本机 ${item.local.records.length} 条记录，目标 ${item.local.target.join('/')}；云端 ${item.remote.records.length} 条记录，目标 ${item.remote.target.join('/')}`));}
         const backup=node('button','导出冲突双方完整备份');backup.className='btn secondary';backup.onclick=()=>download(c,'training-conflict.json');content.append(backup);
         const resolve=node('button','确认所选版本并同步');resolve.className='btn';resolve.onclick=()=>{try{store.resolve(choices);update();schedule();}catch(e){notify(e.message);}};content.append(resolve);
@@ -48,8 +49,8 @@ export function mountCloud({guest,apply,notify}){
   function download(value,name){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'})),a=node('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   if(identity){try{activate(identity);setMessage('已载入账号本机缓存 · 等待同步');}catch(e){identity=null;store=null;setMessage('账号缓存读取失败，请保留备份后重新登录');}}
   draw();
-  window.addEventListener('online',schedule);window.addEventListener('offline',()=>setMessage('离线 · 新记录会在联网后同步'));
+  window.addEventListener('storage',e=>{if(e.key===ID||(store&&e.key===store.key))setMessage('另一个窗口已更新数据 · 请刷新后继续，未提交输入请先保留');});document.addEventListener('close',()=>{if(store){update();schedule();}},true);window.addEventListener('online',schedule);window.addEventListener('offline',()=>setMessage('离线 · 新记录会在联网后同步'));
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule();});
   setInterval(()=>{if(!document.hidden)sync();},30000);schedule();
-  return {save(next){if(!store)return false;if(store.data.conflict)throw Error('请先处理账号同步冲突，再继续修改训练记录');store.edit(next);setMessage('已保存本机 · 待同步');schedule();return true;},isAccount:()=>!!store,changed:schedule};
+  return {import(next){if(!ownsWindow)throw Error('请关闭另一训练窗口后刷新，本窗口暂不可编辑');if(!store)return false;store.import(next);update();setMessage('备份已合并 · 如有冲突请展开处理');schedule();return true;},save(next){if(!ownsWindow)throw Error('请关闭另一训练窗口后刷新，本窗口暂不可编辑');if(!store)return false;store.edit(next);setMessage('已保存本机 · 待同步');schedule();return true;},isAccount:()=>!!store,changed:schedule};
 }

@@ -1,7 +1,9 @@
 import {clone,validateBackup} from './engine.mjs';
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 const copy=x=>x===undefined?undefined:clone(x);
-// An exercise is atomic: its records, progression and validation must agree.
+// Facts merge independently; plan conflicts never discard unrelated training dates.
+const plan=e=>{const {records,...p}=e;return p;};
+function records(a,b){const rows=new Map();let conflict=false;for(const r of [...a,...b]){const old=rows.get(r.date);if(old&&!same(old,r))conflict=true;else rows.set(r.date,clone(r));}return {rows:[...rows.values()].sort((a,b)=>a.date.localeCompare(b.date)),conflict};}
 export function mergeStates(base,local,remote){
   local=validateBackup(local);remote=validateBackup(remote);base=base?validateBackup(base):null;
   const merged=clone(remote),conflicts=[];
@@ -10,7 +12,13 @@ export function mergeStates(base,local,remote){
     else if(same(r,b))set(l);
     else {set(l);conflicts.push({key,local:copy(l),remote:copy(r)});}
   }
-  for(const id of Object.keys(local.exercises))choose('exercise:'+id,base?.exercises[id],local.exercises[id],remote.exercises[id],x=>merged.exercises[id]=clone(x));
+  for(const id of Object.keys(local.exercises)){
+    const l=local.exercises[id],r=remote.exercises[id],b=base?.exercises[id],facts=records(l.records,r.records);
+    if(facts.conflict){merged.exercises[id]=clone(l);conflicts.push({key:'exercise:'+id,local:clone(l),remote:clone(r)});continue;}
+    choose('exercise:'+id,b&&plan(b),plan(l),plan(r),x=>merged.exercises[id]={...clone(x),records:facts.rows});
+    if(b&&!same(l.records,b.records)&&!same(r.records,b.records)&&!same(l.records,r.records))merged.exercises[id].validation=null;
+    const item=conflicts.at(-1);if(item?.key==='exercise:'+id){item.local={...clone(l),records:facts.rows};item.remote={...clone(r),records:facts.rows};item.local.validation=null;item.remote.validation=null;}
+  }
   merged.temporary={};
   for(const k of new Set([...Object.keys(local.temporary),...Object.keys(remote.temporary)])){
     choose('temporary:'+k,base?.temporary[k],local.temporary[k],remote.temporary[k],x=>{if(x!==undefined)merged.temporary[k]=x;});
@@ -19,9 +27,10 @@ export function mergeStates(base,local,remote){
   return {merged:validateBackup(merged),conflicts};
 }
 export class SyncStore {
-  constructor({storage,key,initial}){this.storage=storage;this.key=key;const raw=storage.getItem(key);this.data=raw?JSON.parse(raw):{local:validateBackup(initial),base:validateBackup(initial),revision:0,pending:true,conflict:null};this.data.local=validateBackup(this.data.local);}
-  persist(next){this.storage.setItem(this.key,JSON.stringify(next));this.data=next;}
-  edit(state){this.persist({...this.data,local:validateBackup(state),pending:true});}
+  constructor({storage,key,initial}){this.storage=storage;this.key=key;const raw=storage.getItem(key);this.data=raw?JSON.parse(raw):{local:validateBackup(initial),base:validateBackup(initial),revision:0,pending:true,conflict:null};this.data.local=validateBackup(this.data.local);this.raw=raw;}
+  persist(next){const raw=this.storage.getItem(this.key);if(raw!==this.raw)throw Error('另一个窗口已更新记录，请刷新后重试；当前输入尚未保存。');const serialized=JSON.stringify(next);this.storage.setItem(this.key,serialized);this.raw=serialized;this.data=next;}
+  edit(state){const next=validateBackup(state);let conflict=this.data.conflict;if(conflict){const m=mergeStates(this.data.base,next,conflict.state);conflict=m.conflicts.length?{...conflict,...m}:null;}this.persist({...this.data,local:next,pending:true,conflict});}
+  import(state){const incoming=validateBackup(state),current=clone(this.data.local),m=mergeStates(null,incoming,current);this.storage.setItem(this.key+':before-import',JSON.stringify(this.data));this.persist({...this.data,local:m.merged,pending:true,conflict:m.conflicts.length?{state:current,revision:this.data.revision,...m}:null});}
   async sync(transport){
     if(this.running)return;this.running=true;
     try{
@@ -50,7 +59,7 @@ export class SyncStore {
   }
   resolve(choices){
     const c=this.data.conflict;if(!c)throw Error('没有待处理的冲突');const state=clone(c.merged);
-    for(const item of c.conflicts){const side=choices[item.key];if(!['local','remote'].includes(side))throw Error('请为每个冲突选择版本');const value=item[side];if(item.key.startsWith('exercise:'))state.exercises[item.key.slice(9)]=clone(value);else {const k=item.key.slice(10);if(value===undefined)delete state.temporary[k];else state.temporary[k]=value;}}
+    for(const item of c.conflicts){const side=choices[item.key];if(!['local','remote'].includes(side))throw Error('请为每个冲突选择版本');const value=item[side];if(item.key.startsWith('exercise:'))state.exercises[item.key.slice(9)]={...clone(value),records:records(value.records,(side==='local'?item.remote:item.local).records).rows};else {const k=item.key.slice(10);if(value===undefined)delete state.temporary[k];else state.temporary[k]=value;}}
     const archive=JSON.parse(this.storage.getItem(this.key+':conflict-archive')||'[]');
     archive.push({at:new Date().toISOString(),...c,choices});
     // Preserve both versions before resolving; a storage failure aborts resolution.
