@@ -9,3 +9,4 @@ Thumbs.db
 .openai/*credential*
 .openai/*token*
 coverage/
+dist/auth-sdk.mjs
