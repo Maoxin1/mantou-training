@@ -8,8 +8,8 @@ export function mountCloud({guest,apply,notify}){
   let ownsWindow=!navigator.locks,identity=null,store=null,busy=false,message='未登录 · 记录保存在本机',timer;
   try{identity=JSON.parse(localStorage.getItem(ID)||'null');}catch{}
   const section=node('details');section.className='card cloud-panel';section.style.margin='12px 0';
-  const summary=node('summary','邮箱账号与同步'),status=node('p',message),content=node('div');status.setAttribute('role','status');section.append(summary,content);document.querySelector('header').after(status,section);status.className='callout';
-  function setMessage(text){message=text;status.textContent=text;}
+  const summary=node('summary','邮箱账号与同步'),status=node('p',message),content=node('div');status.setAttribute('role','status');section.append(summary,content);document.querySelector('header').after(status,section);status.hidden=true;const placePanel=()=>{const slot=document.getElementById('accountSlot');if(slot)slot.append(section);else section.remove();};document.addEventListener('training:render',placePanel);placePanel();
+  function setMessage(text){message=text;status.textContent=text;window.dispatchEvent(new CustomEvent('training:cloud-status',{detail:text}));}
   function activate(user){identity={id:user.id,email:user.email};store=new SyncStore({storage:localStorage,key:PREFIX+user.id,initial:fresh()});localStorage.setItem(ID,JSON.stringify(identity));apply(clone(store.data.local),true);draw();}
   function update(){if(store)apply(clone(store.data.local),true);draw();}
   async function transport(accountId,method,body){const t=await auth.token();if(t.error||!t.data?.token)throw Error('需要联网重新登录；待同步记录仍保留');const response=await fetch('/api/sync',{method,cache:'no-store',headers:{'X-Account-Id':accountId,Authorization:'Bearer '+t.data.token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15000)});if(response.status===409)return {conflict:true};let data;try{data=await response.json();}catch{throw Error('同步接口未就绪；本机记录仍保留');}if(!response.ok)throw Error(data.error||'同步暂不可用');return data;}
@@ -19,7 +19,7 @@ export function mountCloud({guest,apply,notify}){
     if(!navigator.onLine){setMessage('离线 · '+(store.data.pending?'有待同步记录':'显示上次同步的数据'));return;}
     const target=store,accountId=identity.id;busy=true;setMessage('正在同步…');
     try{const result=await target.sync((method,body)=>transport(accountId,method,body));if(store!==target)return;if(!document.querySelector('dialog[open]'))update();setMessage(result==='conflict'?'存在冲突 · 请展开选择版本':result==='pending'?'已保存本机 · 等待再次同步':'已与云端同步 · '+new Date().toLocaleTimeString());}
-    catch(e){if(store===target)setMessage(e.message||'同步失败 · 本机记录仍保留');}finally{busy=false;}
+    catch(e){if(store===target)setMessage('同步失败 · '+(e.message||'本机记录仍保留'));}finally{busy=false;}
   }
   if(navigator.locks)navigator.locks.request('mantou-training-editor',{ifAvailable:true},lock=>{if(!lock){setMessage('另一窗口正在使用训练卡 · 请关闭另一窗口后刷新，本窗口暂不可编辑');return;}ownsWindow=true;schedule();return new Promise(()=>{});});
   const schedule=()=>{clearTimeout(timer);timer=setTimeout(sync,800);};
@@ -42,13 +42,13 @@ export function mountCloud({guest,apply,notify}){
     const form=node('form'),email=node('input'),code=node('input'),send=node('button','发送邮箱验证码'),submit=node('button','登录并同步'),hint=node('p','手机和平板使用同一邮箱。首次登录需联网；登录后可离线记录。');
     email.type='email';email.required=true;email.autocomplete='email';email.placeholder='你的邮箱';email.className='text-input';email.setAttribute('aria-label','邮箱');
     code.inputMode='numeric';code.autocomplete='one-time-code';code.placeholder='邮箱验证码';code.className='text-input';code.setAttribute('aria-label','邮箱验证码');send.type='button';send.className='btn secondary';submit.type='submit';submit.className='btn';
-    send.onclick=async()=>{if(!email.reportValidity())return;send.disabled=true;try{const r=await auth.emailOtp.sendVerificationOtp({email:email.value.trim(),type:'sign-in'});if(r.error)throw Error(r.error.message);setMessage('验证码已发送，请检查收件箱和垃圾邮件');setTimeout(()=>send.disabled=false,60000);}catch(e){setMessage(e.message);send.disabled=false;}};
-    form.onsubmit=async e=>{e.preventDefault();if(!code.value.trim()){setMessage('请输入收到的验证码');return;}submit.disabled=true;try{const r=await auth.signIn.emailOtp({email:email.value.trim(),otp:code.value.trim()});if(r.error)throw Error(r.error.message);const session=await auth.getSession();if(!session.data?.user)throw Error('未能取得登录状态，请重试');activate(session.data.user);await sync();}catch(error){setMessage(error.message);}finally{submit.disabled=false;}};
+    send.onclick=async()=>{if(!email.reportValidity())return;send.disabled=true;try{const r=await auth.emailOtp.sendVerificationOtp({email:email.value.trim(),type:'sign-in'});if(r.error)throw Error(r.error.message);setMessage('验证码已发送，请检查收件箱和垃圾邮件');setTimeout(()=>send.disabled=false,60000);}catch(e){setMessage('验证码发送失败 · '+e.message);send.disabled=false;}};
+    form.onsubmit=async e=>{e.preventDefault();if(!code.value.trim()){setMessage('请输入收到的验证码');return;}submit.disabled=true;try{const r=await auth.signIn.emailOtp({email:email.value.trim(),otp:code.value.trim()});if(r.error)throw Error(r.error.message);const session=await auth.getSession();if(!session.data?.user)throw Error('未能取得登录状态，请重试');activate(session.data.user);await sync();}catch(error){setMessage('登录失败 · '+error.message);}finally{submit.disabled=false;}};
     form.append(hint,email,send,code,submit);content.append(form);
   }
   function download(value,name){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'})),a=node('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   if(identity){try{activate(identity);setMessage('已载入账号本机缓存 · 等待同步');}catch(e){identity=null;store=null;setMessage('账号缓存读取失败，请保留备份后重新登录');}}
-  draw();
+  draw();setMessage(message);
   window.addEventListener('storage',e=>{if(e.key===ID||(store&&e.key===store.key))setMessage('另一个窗口已更新数据 · 请刷新后继续，未提交输入请先保留');});document.addEventListener('close',()=>{if(store){update();schedule();}},true);window.addEventListener('online',schedule);window.addEventListener('offline',()=>setMessage('离线 · 新记录会在联网后同步'));
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule();});
   setInterval(()=>{if(!document.hidden)sync();},30000);schedule();
