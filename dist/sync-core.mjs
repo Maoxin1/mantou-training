@@ -1,3 +1,4 @@
+import {mergeJournal,resolveJournalConflict} from './journal-sync.mjs';
 import {clone,validateBackup} from './engine.mjs';
 const stable=x=>x&&typeof x==='object'?(Array.isArray(x)?x.map(stable):Object.fromEntries(Object.keys(x).sort().map(k=>[k,stable(x[k])]))):x;
 const same=(a,b)=>JSON.stringify(stable(a))===JSON.stringify(stable(b));
@@ -30,6 +31,7 @@ export function mergeStates(base,local,remote){
     if(b&&!same(l.records,b.records)&&!same(r.records,b.records)&&!same(l.records,r.records))merged.exercises[id].validation=null;
     const item=conflicts.at(-1);if(item?.key==='exercise:'+id){item.local={...clone(l),records:facts.rows};item.remote={...clone(r),records:facts.rows};item.local.validation=null;item.remote.validation=null;}
   }
+  const journal=mergeJournal(base?.journal,local.journal,remote.journal);merged.journal=journal.merged;conflicts.push(...journal.conflicts);
   merged.temporary={};
   for(const k of new Set([...Object.keys(local.temporary),...Object.keys(remote.temporary)])){
     choose('temporary:'+k,base?.temporary[k],local.temporary[k],remote.temporary[k],x=>{if(x!==undefined)merged.temporary[k]=x;});
@@ -70,7 +72,7 @@ export class SyncStore {
   }
   resolve(choices){
     const c=this.data.conflict;if(!c)throw Error('没有待处理的冲突');const state=clone(c.merged);
-    for(const item of c.conflicts){const side=choices[item.key];if(!['local','remote'].includes(side))throw Error('请为每个冲突选择版本');const value=item[side];if(item.key.startsWith('exercise:'))state.exercises[item.key.slice(9)]={...clone(value),records:records(value.records,(side==='local'?item.remote:item.local).records).rows};else {const k=item.key.slice(10);if(value===undefined)delete state.temporary[k];else state.temporary[k]=value;}}
+    for(const item of c.conflicts){const side=choices[item.key];if(!['local','remote'].includes(side))throw Error('请为每个冲突选择版本');const value=item[side];if(resolveJournalConflict(state.journal,item,side))continue;if(item.key.startsWith('exercise:'))state.exercises[item.key.slice(9)]={...clone(value),records:records(value.records,(side==='local'?item.remote:item.local).records).rows};else {const k=item.key.slice(10);if(value===undefined)delete state.temporary[k];else state.temporary[k]=value;}}
     const archive=JSON.parse(this.storage.getItem(this.key+':conflict-archive')||'[]');
     archive.push({at:new Date().toISOString(),...c,choices});
     // Preserve both versions before resolving; a storage failure aborts resolution.
