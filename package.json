@@ -33,5 +33,8 @@
     "workout",
     "obsidian",
     "training"
-  ]
+  ],
+  "overrides": {
+    "zod": "4.6.7"
+  }
 }
