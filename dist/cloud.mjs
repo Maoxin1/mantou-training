@@ -1,5 +1,6 @@
 import {createAuthClient,BetterAuthVanillaAdapter} from './auth-sdk.mjs';
 import {AUTH_URL} from './cloud-config.mjs';
+import {getSyncToken} from './cloud-token.mjs';
 import {fresh,clone} from './engine.mjs';
 import {SyncStore} from './sync-core.mjs';
 const auth=AUTH_URL?createAuthClient(AUTH_URL,{adapter:BetterAuthVanillaAdapter({fetchOptions:{credentials:'include'}})}):null,ID='mantou-training-account',PREFIX='mantou-training-account:';
@@ -12,7 +13,7 @@ export function mountCloud({guest,apply,notify}){
   function setMessage(text){message=text;status.textContent=text;window.dispatchEvent(new CustomEvent('training:cloud-status',{detail:text}));}
   function activate(user){identity={id:user.id,email:user.email};store=new SyncStore({storage:localStorage,key:PREFIX+user.id,initial:fresh()});localStorage.setItem(ID,JSON.stringify(identity));apply(clone(store.data.local),true);draw();}
   function update(){if(store)apply(clone(store.data.local),true);draw();}
-  async function transport(accountId,method,body){const t=await auth.token();if(t.error||!t.data?.token)throw Error('需要联网重新登录；待同步记录仍保留');const response=await fetch('/api/sync',{method,cache:'no-store',headers:{'X-Account-Id':accountId,Authorization:'Bearer '+t.data.token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15000)});if(response.status===409)return {conflict:true};let data;try{data=await response.json();}catch{throw Error('同步接口未就绪；本机记录仍保留');}if(!response.ok)throw Error(data.error||'同步暂不可用');return data;}
+  async function transport(accountId,method,body){const token=await getSyncToken(AUTH_URL);const response=await fetch('/api/sync',{method,cache:'no-store',headers:{'X-Account-Id':accountId,Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15000)});if(response.status===409)return {conflict:true};let data;try{data=await response.json();}catch{throw Error('同步接口未就绪；本机记录仍保留');}if(!response.ok)throw Error(data.error||'同步暂不可用');return data;}
   async function sync(){
     if(!auth||!ownsWindow||!store||busy||document.querySelector('dialog[open]'))return;
     
