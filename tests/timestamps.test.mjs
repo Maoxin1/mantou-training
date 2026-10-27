@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {fresh,clone,record} from '../dist/engine.mjs';
+import {fresh,clone,record,cancelValidation,resumeExercise} from '../dist/engine.mjs';
 import {writeEntry,removeEntry,startTrial,startSession,exerciseEntryId,blankRows,trialSummary,changePlan} from '../dist/journal.mjs';
 import {mergeStates,SyncStore} from '../dist/sync-core.mjs';
 const old='2026-10-20T10:00:00Z',newer='2026-10-20T11:00:00Z';
@@ -37,6 +37,32 @@ test('latest plan adjustment wins while retaining both histories',()=>{
   checkBoth(base,l,r,s=>{assert.equal(s.journal.trials[id].plan[0].sets,4);assert.equal(s.journal.trials[id].changes.length,2);});
 });
 const input=(date,values=[6,6,6])=>({date,values,rir:'2',quality:'normal',comparable:'yes',temporary:false});
+test('later cancellation survives an earlier offline record in either sync order', t=>{
+  t.mock.timers.enable({apis:['Date'],now:new Date(old)});
+  const base=fresh();base.exercises.push.validation={streak:0,lastDate:null};
+  const recorded=clone(base),cancelled=clone(base);
+  record(recorded,'push',input('2026-10-20'));
+  t.mock.timers.setTime(new Date(newer).getTime());
+  cancelValidation(cancelled,'push');
+  checkBoth(base,recorded,cancelled,s=>{
+    assert.equal(s.exercises.push.validation,null);
+    assert.equal(s.exercises.push.records.length,1);
+  });
+});
+test('later resume survives an earlier offline record in either sync order', t=>{
+  t.mock.timers.enable({apis:['Date'],now:new Date(old)});
+  const base=fresh();base.exercises.push.blocked=true;
+  const recorded=clone(base),resumed=clone(base);
+  record(recorded,'push',input('2026-10-20'));
+  t.mock.timers.setTime(new Date(newer).getTime());
+  resumeExercise(resumed,'push');
+  checkBoth(base,recorded,resumed,s=>{
+    assert.equal(s.exercises.push.blocked,false);
+    assert.equal(s.exercises.push.validation,null);
+    assert.equal(s.exercises.push.records.length,1);
+  });
+  assert.equal(resumed.events.at(-1).at,resumed.exercises.push.updated);
+});
 test('legacy same-day facts use logged timestamp and latest progress snapshot survives',()=>{
   const base=fresh(),l=clone(base),r=clone(base);record(l,'push',input('2026-10-20'));record(r,'push',input('2026-10-20',[8,8,8]));
   l.exercises.push.records[0].logged=old;l.exercises.push.updated=old;r.exercises.push.records[0].logged=newer;r.exercises.push.updated=newer;r.exercises.push.target=[7,7,7];

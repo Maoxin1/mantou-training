@@ -1,5 +1,5 @@
 /* Only the static training shell is cached. Training records stay in localStorage. */
-const CACHE='mantou-training-shell-v11';
+const CACHE='mantou-training-shell-v12';
 const SHELL=['/','/journal.mjs','/journal-ui.mjs','/journal-sync.mjs','/cloud.mjs','/cloud-config.mjs','/auth-sdk.mjs','/sync-core.mjs','/timestamps.mjs','/style.css','/app.mjs','/engine.mjs','/pwa.mjs','/manifest.webmanifest','/icons/icon-192.png','/icons/icon-512.png','/icons/icon-maskable-512.png','/icons/apple-touch-icon.png','/icons/icon.svg'];
 const PATHS=new Set(SHELL);
 function valid(response,path){if(!response||!response.ok||response.redirected)return false;const type=response.headers.get('content-type')||'';if(path.endsWith('.mjs')||path.endsWith('.js'))return /javascript/.test(type);if(path.endsWith('.css'))return /text\/css/.test(type);if(path.endsWith('.png'))return /image\/png/.test(type);if(path.endsWith('.svg'))return /image\/svg/.test(type);if(path.endsWith('.webmanifest'))return /json|manifest/.test(type);return /text\/html/.test(type);}
