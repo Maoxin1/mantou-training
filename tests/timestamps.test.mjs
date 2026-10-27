@@ -63,6 +63,34 @@ test('later resume survives an earlier offline record in either sync order', t=>
   });
   assert.equal(resumed.events.at(-1).at,resumed.exercises.push.updated);
 });
+for(const operation of ['cancel','resume'])test(`two offline devices preserve a later ${operation} after delayed upload`,async t=>{
+  t.mock.timers.enable({apis:['Date'],now:new Date(old)});
+  const initial=fresh();
+  if(operation==='cancel')initial.exercises.push.validation={streak:0,lastDate:null};
+  else initial.exercises.push.blocked=true;
+  const storage=()=>{const map=new Map();return {getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v)};};
+  const make=()=>new SyncStore({storage:storage(),key:'test-account',initial:clone(initial)});
+  let state=null,revision=0;
+  const transport=async(method,body)=>method==='GET'?{state:clone(state),revision}:body.revision!==revision?{conflict:true}:(state=clone(body.state),{revision:++revision});
+  const a=make(),b=make();
+  assert.equal(await a.sync(transport),'synced');
+  assert.equal(await b.sync(transport),'synced');
+  const earlier=clone(a.data.local);record(earlier,'push',input('2026-10-20'));a.edit(earlier);
+  await assert.rejects(a.sync(async()=>{throw Error('offline')}));
+  t.mock.timers.setTime(new Date(newer).getTime());
+  const later=clone(b.data.local);
+  if(operation==='cancel')cancelValidation(later,'push');else resumeExercise(later,'push');
+  b.edit(later);
+  assert.equal(await b.sync(transport),'synced');
+  assert.equal(await a.sync(transport),'synced');
+  assert.equal(await b.sync(transport),'synced');
+  for(const device of [a,b]){
+    assert.equal(device.data.local.exercises.push.validation,null);
+    assert.equal(device.data.local.exercises.push.blocked,false);
+    assert.equal(device.data.local.exercises.push.records.length,1);
+    assert.equal(device.data.pending,false);
+  }
+});
 test('legacy same-day facts use logged timestamp and latest progress snapshot survives',()=>{
   const base=fresh(),l=clone(base),r=clone(base);record(l,'push',input('2026-10-20'));record(r,'push',input('2026-10-20',[8,8,8]));
   l.exercises.push.records[0].logged=old;l.exercises.push.updated=old;r.exercises.push.records[0].logged=newer;r.exercises.push.updated=newer;r.exercises.push.target=[7,7,7];
