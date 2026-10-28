@@ -2,8 +2,11 @@ import {dateOK,today} from './journal.mjs';
 export const MEALS={breakfast:'早餐',lunch:'午餐',dinner:'晚餐',snack:'加餐'};
 export const PHOTO_LIMIT=180*1024;
 export const PHOTO_ID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+// API servers can run in UTC. Accept the current calendar day in any real timezone;
+// the journal UI still prevents future local dates.
+export const latestPhotoDate=()=>new Date(Date.now()+14*3600000).toISOString().slice(0,10);
 export function photoMeta(p){
-  if(!p||!PHOTO_ID.test(p.id)||!dateOK(p.date)||p.date>today()||!Object.hasOwn(MEALS,p.meal))throw Error('照片日期、餐次或标识无效');
+  if(!p||!PHOTO_ID.test(p.id)||!dateOK(p.date)||p.date>latestPhotoDate()||!Object.hasOwn(MEALS,p.meal))throw Error('照片日期、餐次或标识无效');
   return {id:p.id,date:p.date,meal:p.meal};
 }
 export function validatePhoto(p){

@@ -1,6 +1,6 @@
 import {createRemoteJWKSet,jwtVerify} from 'jose';
 import {neon} from '@neondatabase/serverless';
-import {photoMeta,validatePhoto,PHOTO_LIMIT} from '../dist/meal-core.mjs';
+import {photoMeta,validatePhoto,PHOTO_LIMIT,latestPhotoDate} from '../dist/meal-core.mjs';
 import {dateOK,today} from '../dist/journal.mjs';
 const authURL=(process.env.AUTH_URL||'').trim().replace(/\/$/,'');
 const jwks=authURL?createRemoteJWKSet(new URL(authURL+'/.well-known/jwks.json')):null;
@@ -23,7 +23,7 @@ export function createHandler({verify=authenticate,storage}={}){
       const s=storage||databaseStorage(user);
       if(req.method==='GET'&&req.query?.index==='1')return res.status(200).json({dates:[...new Set((await s.keys(`accounts/${encodeURIComponent(user)}/`)).map(k=>k.split('/')[2]))].sort()});
       const date=req.query?.date;
-      if(!dateOK(date)||date>today())return res.status(400).json({error:'无效照片日期'});
+      if(!dateOK(date)||date>latestPhotoDate())return res.status(400).json({error:'无效照片日期'});
       const prefix=`accounts/${encodeURIComponent(user)}/${date}/`;
       if(req.method==='GET')return res.status(200).json({photos:await s.list(prefix)});
       const body=typeof req.body==='string'?JSON.parse(req.body):req.body;
