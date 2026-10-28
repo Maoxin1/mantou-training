@@ -14,3 +14,7 @@ dist/auth-sdk.mjs
 .env*.json
 dist/cloud-config.mjs
 .openai/
+
+dist/meal-zip.mjs
+.vercel
+.env*

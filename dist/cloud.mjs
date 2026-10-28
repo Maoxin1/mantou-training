@@ -4,6 +4,15 @@ import {fresh,clone} from './engine.mjs';
 import {SyncStore} from './sync-core.mjs';
 const auth=AUTH_URL?createAuthClient(AUTH_URL,{adapter:BetterAuthVanillaAdapter({fetchOptions:{credentials:'include'}})}):null,ID='mantou-training-account',PREFIX='mantou-training-account:';
 const node=(tag,text)=>{const e=document.createElement(tag);if(text)e.textContent=text;return e;};
+export function mealOwner(){try{return auth?JSON.parse(localStorage.getItem(ID)||'null')?.id||'guest':'guest';}catch{return 'guest';}}
+export async function mealRequest(owner,method,query,body){
+  if(owner==='guest'||mealOwner()!==owner)throw Error('请登录原邮箱后同步照片');
+  const t=await auth.token();if(t.error||!t.data?.token)throw Error('请联网重新验证邮箱；照片保留本机');
+  if(mealOwner()!==owner)throw Error('账号已切换');
+  const r=await fetch('/api/meals?'+new URLSearchParams(query),{method,cache:'no-store',headers:{'X-Account-Id':owner,Authorization:'Bearer '+t.data.token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(25000)});
+  if(mealOwner()!==owner)throw Error('账号已切换');
+  let data;try{data=await r.json();}catch{throw Error('照片服务暂不可用，本机照片保留');}if(!r.ok)throw Error(data.error||'照片同步失败');return data;
+}
 export function mountCloud({guest,apply,notify}){
   let ownsWindow=!navigator.locks,identity=null,store=null,busy=false,message='未登录 · 记录保存在本机',timer;
   try{identity=JSON.parse(localStorage.getItem(ID)||'null');}catch{}

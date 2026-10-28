@@ -5,3 +5,12 @@
 
 /* Daily journal: restrained surfaces, primary actions first. */
 .journal-field{display:grid;gap:7px;margin:16px 0;font-size:14px;min-width:0}.journal-field .text-input{margin:0;width:100%;box-sizing:border-box}.journal-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.journal-columns label{min-width:0;display:grid;gap:6px;font-size:13px}.journal-actions{display:flex;gap:20px;flex-wrap:wrap}.trial-overview h3{margin-top:0}.trial-overview .btn{width:100%}.trial-overview .row{flex-wrap:wrap;gap:8px}.set-card{min-width:0;border:1px solid var(--line);border-radius:16px;padding:16px;margin:18px 0;background:#fff}.set-card legend{padding:0 6px;font-size:14px;font-weight:600}.set-card details{margin-bottom:0}.review-preview,.conflict-preview{white-space:pre-wrap;overflow-wrap:anywhere;background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;font-size:12px;line-height:1.8;max-height:55vh;overflow:auto}.journal-log{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:14px 0;min-height:48px;color:var(--green);font-size:14px}.meal-guide{display:grid;gap:8px}.meal-guide p{margin:0;padding:12px 0;border-bottom:1px solid var(--line)}textarea.text-input{resize:vertical;line-height:1.6;min-height:90px}#journalSave{position:sticky;top:0;z-index:1;background:var(--paper);padding:8px 0;margin-top:0}#dialogContent .btn{width:100%;margin:10px 0}.conflict-preview{max-height:180px}dialog{max-height:90dvh;overflow:auto} @media(min-width:760px){.meal-guide{grid-template-columns:1fr 1fr;gap:16px}}
+
+.meal-section{padding:8px 0 24px;border-bottom:1px solid var(--line,#ddd);margin-bottom:24px}
+.meal-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:#efeff3;border-radius:12px;padding:4px;margin:16px 0}
+.meal-tabs button{border:0;border-radius:9px;background:transparent;padding:12px 4px;font:inherit;cursor:pointer;color:#555}
+.meal-tabs button[aria-pressed=true]{background:#fff;color:#0071e3;box-shadow:0 1px 4px #0001}
+.meal-gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.meal-gallery figure{margin:0}.meal-gallery img{width:100%;aspect-ratio:4/3;object-fit:contain;background:#f4f4f6;border-radius:12px}
+.meal-gallery figcaption{font-size:13px;color:#666;padding:6px 0}
+.meal-section .file-label{flex:1;min-width:100px;text-align:center}
