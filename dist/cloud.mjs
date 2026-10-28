@@ -1,5 +1,6 @@
 import {createAuthClient,BetterAuthVanillaAdapter} from './auth-sdk.mjs';
 import {AUTH_URL} from './cloud-config.mjs';
+import {getSyncToken} from './cloud-token.mjs';
 import {fresh,clone} from './engine.mjs';
 import {SyncStore} from './sync-core.mjs';
 const auth=AUTH_URL?createAuthClient(AUTH_URL,{adapter:BetterAuthVanillaAdapter({fetchOptions:{credentials:'include'}})}):null,ID='mantou-training-account',PREFIX='mantou-training-account:';
@@ -7,9 +8,9 @@ const node=(tag,text)=>{const e=document.createElement(tag);if(text)e.textConten
 export function mealOwner(){try{return auth?JSON.parse(localStorage.getItem(ID)||'null')?.id||'guest':'guest';}catch{return 'guest';}}
 export async function mealRequest(owner,method,query,body){
   if(owner==='guest'||mealOwner()!==owner)throw Error('请登录原邮箱后同步照片');
-  const t=await auth.token();if(t.error||!t.data?.token)throw Error('请联网重新验证邮箱；照片保留本机');
+  let token;try{token=await getSyncToken(AUTH_URL)}catch{throw Error('请联网重新验证邮箱；照片保留本机')}
   if(mealOwner()!==owner)throw Error('账号已切换');
-  const r=await fetch('/api/meals?'+new URLSearchParams(query),{method,cache:'no-store',headers:{'X-Account-Id':owner,Authorization:'Bearer '+t.data.token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(25000)});
+  const r=await fetch('/api/meals?'+new URLSearchParams(query),{method,cache:'no-store',headers:{'X-Account-Id':owner,Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(25000)});
   if(mealOwner()!==owner)throw Error('账号已切换');
   let data;try{data=await r.json();}catch{throw Error('照片服务暂不可用，本机照片保留');}if(!r.ok)throw Error(data.error||'照片同步失败');return data;
 }
@@ -21,7 +22,7 @@ export function mountCloud({guest,apply,notify}){
   function setMessage(text){message=text;status.textContent=text;window.dispatchEvent(new CustomEvent('training:cloud-status',{detail:text}));}
   function activate(user){identity={id:user.id,email:user.email};store=new SyncStore({storage:localStorage,key:PREFIX+user.id,initial:fresh()});localStorage.setItem(ID,JSON.stringify(identity));apply(clone(store.data.local),true);draw();}
   function update(){if(store)apply(clone(store.data.local),true);draw();}
-  async function transport(accountId,method,body){const t=await auth.token();if(t.error||!t.data?.token)throw Error('需要联网重新登录；待同步记录仍保留');const response=await fetch('/api/sync',{method,cache:'no-store',headers:{'X-Account-Id':accountId,Authorization:'Bearer '+t.data.token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15000)});if(response.status===409)return {conflict:true};let data;try{data=await response.json();}catch{throw Error('同步接口未就绪；本机记录仍保留');}if(!response.ok)throw Error(data.error||'同步暂不可用');return data;}
+  async function transport(accountId,method,body){const token=await getSyncToken(AUTH_URL);const response=await fetch('/api/sync',{method,cache:'no-store',headers:{'X-Account-Id':accountId,Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15000)});if(response.status===409)return {conflict:true};let data;try{data=await response.json();}catch{throw Error('同步接口未就绪；本机记录仍保留');}if(!response.ok)throw Error(data.error||'同步暂不可用');return data;}
   async function sync(){
     if(!auth||!ownsWindow||!store||busy||document.querySelector('dialog[open]'))return;
     
@@ -39,9 +40,9 @@ export function mountCloud({guest,apply,notify}){
       content.append(node('p',identity.email));
       const now=node('button','立即同步');now.className='btn secondary';now.onclick=sync;content.append(now);
       const hasGuest=Object.values(guest().exercises).some(e=>e.records.length||e.changes.length||e.validation||e.blocked)||Object.keys(guest().journal?.entries||{}).length>0||Object.keys(guest().journal?.trials||{}).length>0;
-      if(hasGuest){const migrate=node('button','将此浏览器原有记录迁入账号');migrate.className='btn secondary';migrate.onclick=()=>{if(!confirm('先导出原有记录备份。迁入将与云端比较；同一动作有不同版本时需要选择。继续？'))return;store.import(guest());update();schedule();};content.append(migrate);}
+      if(hasGuest){const migrate=node('button','将此浏览器原有记录迁入账号');migrate.className='btn secondary';migrate.onclick=()=>{if(!confirm('先导出原有记录备份。迁入将与云端比较；反馈按实际修改时间合并；时间相同或无法判断时需要选择。继续？'))return;store.import(guest());update();schedule();};content.append(migrate);}
       if(store.data.conflict){
-        const c=store.data.conflict,choices={};const quick=node('div');for(const [side,text]of [['local','保留本机差异并合并'],['remote','保留云端差异并合并']]){const button=node('button',text);button.className=side==='local'?'btn':'btn secondary';button.onclick=async()=>{if(!ownsWindow){notify('请在原训练窗口处理');return;}try{store.resolve(Object.fromEntries(c.conflicts.map(item=>[item.key,side])));update();setMessage('已保存选择 · 正在同步');await sync();}catch(e){notify(e.message);}};quick.append(button);}content.append(quick,node('p','不同日期自动保留；相同日期或计划有分歧时，使用你选的一边。双方备份会自动保存在本机。'));content.append(node('p','两台设备修改了同一项目。不同日期的记录会保留；请选择有分歧的计划或同日记录。继续训练仍可保存本机。'));
+        const c=store.data.conflict,choices={};const quick=node('div');for(const [side,text]of [['local','保留本机差异并合并'],['remote','保留云端差异并合并']]){const button=node('button',text);button.className=side==='local'?'btn':'btn secondary';button.onclick=async()=>{if(!ownsWindow){notify('请在原训练窗口处理');return;}try{store.resolve(Object.fromEntries(c.conflicts.map(item=>[item.key,side])));update();setMessage('已保存选择 · 正在同步');await sync();}catch(e){notify(e.message);}};quick.append(button);}content.append(quick,node('p','不同日期自动保留，反馈按最新修改时间合并；无法判断先后时，使用你选的一边。双方备份会自动保存在本机。'));content.append(node('p','这些差异的时间戳相同或不足以判断先后，请选择版本。不同日期的记录会保留，继续训练仍可保存本机。'));
         for(const item of c.conflicts){const label=node('label',item.label||(item.key.startsWith('exercise:')?c.merged.exercises[item.key.slice(9)].name:item.key)),select=node('select');select.className='text-input';for(const [v,t]of [['','请选择'],['local','此设备版本'],['remote','云端／另一设备版本']]){const o=node('option',t);o.value=v;select.append(o);}select.onchange=()=>choices[item.key]=select.value;label.append(select);content.append(label);if(item.key.startsWith('journal:')){for(const [side,title]of [['local','本机'],['remote','云端']]){const preview=node('pre',title+'：'+JSON.stringify(item[side]??'未填写',null,2));preview.className='conflict-preview';content.append(preview);}}if(item.key.startsWith('exercise:'))content.append(node('p',`本机 ${item.local.records.length} 条记录，目标 ${item.local.target.join('/')}；云端 ${item.remote.records.length} 条记录，目标 ${item.remote.target.join('/')}`));}
         const backup=node('button','导出冲突双方完整备份');backup.className='btn secondary';backup.onclick=()=>download(c,'training-conflict.json');content.append(backup);
         const resolve=node('button','确认所选版本并同步');resolve.className='btn';resolve.onclick=()=>{try{store.resolve(choices);update();schedule();}catch(e){notify(e.message);}};content.append(resolve);

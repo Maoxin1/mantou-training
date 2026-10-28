@@ -1,13 +1,28 @@
+import {compareTimestamps,latestTimestamp} from './timestamps.mjs';
 import {mergeJournal,resolveJournalConflict} from './journal-sync.mjs';
 import {clone,validateBackup} from './engine.mjs';
 const stable=x=>x&&typeof x==='object'?(Array.isArray(x)?x.map(stable):Object.fromEntries(Object.keys(x).sort().map(k=>[k,stable(x[k])]))):x;
 const same=(a,b)=>JSON.stringify(stable(a))===JSON.stringify(stable(b));
 const copy=x=>x===undefined?undefined:clone(x);
 // Facts merge independently; plan conflicts never discard unrelated training dates.
-const plan=e=>{const {records,...p}=e;return p;};
-const settings=e=>{const {records,changes,validation,...p}=e;return p;};
-const recordFact=r=>{if(!r)return r;const {id,logged,outcome,...fact}=r;return fact;};
-function records(a,b,base=[]){const left=new Map(a.map(r=>[r.date,r])),right=new Map(b.map(r=>[r.date,r])),before=new Map(base.map(r=>[r.date,r]));let conflict=false;const rows=[];for(const date of new Set([...left.keys(),...right.keys()])){const l=left.get(date),r=right.get(date),old=before.get(date);let picked;if(!l)picked=r;else if(!r)picked=l;else if(same(recordFact(l),recordFact(r))||same(recordFact(l),recordFact(old)))picked=r;else if(same(recordFact(r),recordFact(old)))picked=l;else{picked=l;conflict=true;}rows.push(clone(picked));}return {rows:rows.sort((a,b)=>a.date.localeCompare(b.date)),conflict};}
+const plan=e=>{const {records,updated,...p}=e;return p;};
+const settings=e=>{const {records,changes,validation,updated,...p}=e;return p;};
+const recordFact=r=>{if(!r)return r;const {id,logged,updated,outcome,...fact}=r;return fact;};
+function records(a,b,base=[]){
+  const left=new Map(a.map(r=>[r.date,r])),right=new Map(b.map(r=>[r.date,r])),before=new Map(base.map(r=>[r.date,r]));let conflict=false;const rows=[];
+  for(const date of new Set([...left.keys(),...right.keys()])){
+    const l=left.get(date),r=right.get(date),old=before.get(date);let picked;
+    const order=l&&r?compareTimestamps(l.updated||l.logged,r.updated||r.logged):0;
+    if(!l)picked=r;else if(!r)picked=l;
+    else if(order)picked=order>0?l:r;
+    else if(same(recordFact(l),recordFact(r))||same(recordFact(l),recordFact(old)))picked=r;
+    else if(same(recordFact(r),recordFact(old)))picked=l;
+    else{picked=l;conflict=true;}
+    rows.push(clone(picked));
+  }
+  return {rows:rows.sort((a,b)=>a.date.localeCompare(b.date)),conflict};
+}
+const progressTime=e=>latestTimestamp([e.updated,...e.records.map(r=>r.updated||r.logged),...e.changes.map(c=>c.at)]);
 export function mergeStates(base,local,remote){
   local=validateBackup(local);remote=validateBackup(remote);base=base?validateBackup(base):null;
   const merged=clone(remote),conflicts=[];
@@ -19,6 +34,15 @@ export function mergeStates(base,local,remote){
   for(const id of Object.keys(local.exercises)){
     const l=local.exercises[id],r=remote.exercises[id],b=base?.exercises[id],facts=records(l.records,r.records,b?.records);
     if(facts.conflict){merged.exercises[id]={...clone(l),records:facts.rows};conflicts.push({key:'exercise:'+id,local:clone(l),remote:clone(r)});continue;}
+    // Progress is a snapshot of target, validation and pause status at the last edit.
+    // Carry the newer snapshot while retaining independent training dates.
+    const progressOrder=compareTimestamps(progressTime(l),progressTime(r));
+    if(!same(plan(l),plan(r))&&progressOrder){
+      const winner=progressOrder>0?l:r,loser=progressOrder>0?r:l;
+      const history=new Map([...loser.changes,...winner.changes].map(c=>[c.id,c]));
+      merged.exercises[id]={...clone(winner),records:facts.rows,changes:[...history.values()].sort((a,b)=>a.at.localeCompare(b.at))};
+      continue;
+    }
     const history=new Map(r.changes.map(c=>[c.id,c]));
     const historyConflict=l.changes.some(c=>history.has(c.id)&&!same(c,history.get(c.id)));
     if(same(settings(l),settings(r))&&!historyConflict){
