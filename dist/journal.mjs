@@ -1,4 +1,4 @@
-import {validSleep,sleepLine} from './sleep-core.mjs';
+import {validateSleepSegments,sleepLine} from './sleep-core.mjs';
 // Versioned daily journal. No personal measurements, account details or real logs belong here.
 export const copy=x=>JSON.parse(JSON.stringify(x));
 export const today=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -57,7 +57,7 @@ export function validateJournal(value){
     if(!/^[A-Za-z0-9:._-]{1,180}$/.test(id)||['__proto__','prototype','constructor'].includes(id))throw Error('备份含无效记录标识');
     if(!obj(e)||e.id!==id||!['daily','session','exercise'].includes(e.kind)||!obj(e.fields)||typeof e.created!=='string'||typeof e.updated!=='string'||typeof e.deleted!=='boolean')throw Error('备份含无效每日记录');
     safeJSON(e);
-    if(e.fields.samsungSleep!==undefined&&(e.kind!=='daily'||!validSleep(e.fields.samsungSleep)||e.fields.samsungSleep.date!==e.fields.date))throw Error('备份含无效三星睡眠数据');
+    if(e.fields.samsungSleep!==undefined&&(e.kind!=='daily'||!validateSleepSegments(e.fields.samsungSleep)||e.fields.samsungSleep.date!==e.fields.date))throw Error('备份含无效三星睡眠数据');
     if(e.kind==='daily'||e.kind==='session'){if(!dateOK(e.fields.date))throw Error('备份含无效记录日期');}
     if(e.kind==='session'){if(typeof e.fields.trialId!=='string'||!value.trials[e.fields.trialId])throw Error('备份中的训练缺少试行阶段');validatePlan(e.fields.plan);}
     if(e.kind==='exercise'){
