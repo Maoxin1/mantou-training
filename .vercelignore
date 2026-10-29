@@ -2,6 +2,7 @@
 .git
 node_modules
 tests
+test-output
 *.log
 *backup*.json
 .openai
