@@ -6,6 +6,9 @@
   "description": "Personal local-first training cards with rules-based progression and Obsidian exports",
   "scripts": {
     "test": "npm run build && node --test tests/*.test.mjs",
+    "test:browser": "npm run build && node tests/browser-meals.mjs",
+    "smoke:online": "node scripts/online-smoke.mjs",
+    "test:update": "node scripts/online-update.mjs",
     "start": "node scripts/serve.mjs",
     "build": "node scripts/build.mjs"
   },

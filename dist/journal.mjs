@@ -85,7 +85,7 @@ export function entry(s,id){const e=s.journal?.entries[id];return e&&!e.deleted?
 export function writeEntry(s,id,kind,fields){
   const j=ensureJournal(s),old=j.entries[id],at=stamp();
   if(['daily','session'].includes(kind)&&fields.date!==undefined&&(!dateOK(fields.date)||fields.date>today()))throw Error('实际记录日期必须有效且不晚于今天');
-  j.entries[id]={id,kind,created:old?.created||at,updated:at,deleted:false,fields:{...(old?.fields||{}),...copy(fields)}};
+  j.entries[id]={id,kind,created:old?.created||at,updated:at,deleted:false,fieldUpdated:{...Object.fromEntries(Object.keys(old?.fields||{}).map(k=>[k,old.fieldUpdated?.[k]||old.updated])),...Object.fromEntries(Object.keys(fields).filter(k=>JSON.stringify(old?.fields[k])!==JSON.stringify(fields[k])).map(k=>[k,at]))},fields:{...(old?.fields||{}),...copy(fields)}};
   validateJournal(j);return j.entries[id];
 }
 export function startSession(s,{date=today(),trialId=activeTrial(s)?.id}={}){

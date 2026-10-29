@@ -7,7 +7,7 @@ import {createHandler,photoKey} from '../api/meals.mjs';
 import {fresh,validateBackup} from '../dist/engine.mjs';
 import {startTrial,writeEntry,trialMarkdown} from '../dist/journal.mjs';
 const photo=()=>({id:crypto.randomUUID(),date:'2026-10-27',meal:'lunch',data:Buffer.from([255,216,255,224,0,0,255,217]).toString('base64')});
-export function memoryStorage(){const data=new Map(),dead=new Set();return {data,dead,keys:async prefix=>[...data.keys()].map(k=>k+'.jpg').concat([...dead].map(k=>k+'.deleted')).filter(k=>k.startsWith(prefix)),isDeleted:async k=>dead.has(k),markDeleted:async k=>{dead.add(k);},removeImage:async k=>{data.delete(k);},putImage:async(k,b)=>{data.set(k,b);},list:async prefix=>[...new Set([...data.keys(),...dead])].filter(k=>k.startsWith(prefix)).map(k=>{const [date,meal,id]=k.split('/').slice(-3);return {id,date,meal,...(dead.has(k)?{deleted:true}:{deleted:false,data:data.get(k).toString('base64')})};})};}
+import {memoryStorage} from './helpers/meal-storage.mjs';
 export async function call(handler,{user='a',method='GET',query={date:'2026-10-27'},body}={}){
   const headers={};let code=200,result;await handler({method,query,body,headers:{'x-account-id':user}}, {setHeader:(k,v)=>headers[k]=v,status:n=>{code=n;return {json:x=>{result=x;}};}});return {code,result,headers};
 }

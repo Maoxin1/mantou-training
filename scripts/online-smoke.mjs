@@ -1,10 +1,12 @@
 import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
-const browser=await chromium.launch({channel:'msedge',headless:true});
+import {mkdir} from 'node:fs/promises';
+const baseURL=(process.env.TRAINING_BASE_URL||'https://mantou-training-offline.vercel.app').replace(/\/$/,'');
+const browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||(process.platform==='win32'?'msedge':undefined),headless:true});
 try{
   const context=await browser.newContext({viewport:{width:412,height:915}}),page=await context.newPage(),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
-  const response=await page.goto('https://mantou-training-offline.vercel.app/',{timeout:25000,waitUntil:'domcontentloaded'});
+  const response=await page.goto(baseURL+'/',{timeout:25000,waitUntil:'domcontentloaded'});
   console.log('Page',response.status(),await page.title());
   await page.waitForTimeout(2500);
   console.log('Errors',errors);
@@ -23,6 +25,6 @@ try{
   await page.locator('#mealFile').setInputFiles({name:'acceptance-test.jpg',mimeType:'image/jpeg',buffer:Buffer.from(image,'base64')});await page.locator('#mealGallery img').waitFor();await page.waitForFunction(()=>!document.getElementById('mealFile').disabled);
   await page.locator('#mealAmounts input').fill('浏览器验收测试，仅在隔离的未登录空间');
   await page.locator('#closeDialog').click();await context.setOffline(true);await page.reload();await page.locator('#todayFeedback').click();await page.locator('[data-meal=lunch]').click();await page.locator('#mealGallery img').waitFor();assert.equal(await page.locator('#mealAmounts input').inputValue(),'浏览器验收测试，仅在隔离的未登录空间');assert.deepEqual(errors,[]);
-  await page.screenshot({path:'.env.online-meal.png'});
+  await mkdir('test-output',{recursive:true});await page.screenshot({path:'test-output/online-meal.png'});
   console.log('Production browser PASS: meal UI, image compression, local save, offline reopen, note persistence; no account or production record modified.');
 }catch(e){console.log('Browser validation failed',e.message);process.exitCode=1;}finally{await browser.close();}
