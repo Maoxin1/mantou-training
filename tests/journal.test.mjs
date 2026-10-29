@@ -1,3 +1,7 @@
+import {beforeEach,afterEach,mock} from 'node:test';
+// Existing conflict tests exercise the equal-timestamp fallback deterministically.
+beforeEach(()=>mock.timers.enable({apis:['Date'],now:Date.UTC(2026,9,27)}));
+afterEach(()=>mock.timers.reset());
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fresh,clone,validateBackup,record} from '../dist/engine.mjs';
