@@ -1,3 +1,4 @@
+import {validSleep,sleepLine} from './sleep-core.mjs';
 // Versioned daily journal. No personal measurements, account details or real logs belong here.
 export const copy=x=>JSON.parse(JSON.stringify(x));
 export const today=(d=new Date())=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -56,6 +57,7 @@ export function validateJournal(value){
     if(!/^[A-Za-z0-9:._-]{1,180}$/.test(id)||['__proto__','prototype','constructor'].includes(id))throw Error('备份含无效记录标识');
     if(!obj(e)||e.id!==id||!['daily','session','exercise'].includes(e.kind)||!obj(e.fields)||typeof e.created!=='string'||typeof e.updated!=='string'||typeof e.deleted!=='boolean')throw Error('备份含无效每日记录');
     safeJSON(e);
+    if(e.fields.samsungSleep!==undefined&&(e.kind!=='daily'||!validSleep(e.fields.samsungSleep)||e.fields.samsungSleep.date!==e.fields.date))throw Error('备份含无效三星睡眠数据');
     if(e.kind==='daily'||e.kind==='session'){if(!dateOK(e.fields.date))throw Error('备份含无效记录日期');}
     if(e.kind==='session'){if(typeof e.fields.trialId!=='string'||!value.trials[e.fields.trialId])throw Error('备份中的训练缺少试行阶段');validatePlan(e.fields.plan);}
     if(e.kind==='exercise'){
@@ -139,7 +141,7 @@ export function trialMarkdown(s,trialId=activeTrial(s)?.id,asOf=today()){
     for(const {plan,log}of sessionExercises(s,se)){out+=`- ${plan.name}：${label('exerciseStatus',log?.fields.exerciseStatus)}；${log?.fields.notes||'无补充'}；当时目标${plan.sets}组×${plan.min}–${plan.max}次${plan.sides?'／侧':''}。\n`;}
     out+='\n';
   }
-  for(const d of q.days){const f=d.fields;out+=`### ${f.date}｜每日反馈 ${d.id}\n\n- 活动：${label('activity',f.activity)}；羽毛球${number(f.badmintonMinutes)}分钟。\n- 反馈时段：${label('feedbackScope',f.feedbackScope)}；下午饥饿：${label('afternoonHunger',f.afternoonHunger)}；胃肠感受：${label('digestion',f.digestion)}。\n- 饥饿：${label('hunger',f.hunger)}；精神：${label('energy',f.energy)}；睡眠：${label('sleep',f.sleepQuality)}。\n- 早餐：${f.breakfast||'未填写'}；实际食用：${label('mealAmount',f.breakfastAmount)}；补充：${f.breakfastNote||'未填写'}\n- 午餐：${f.lunch||'未填写'}；实际食用：${label('mealAmount',f.lunchAmount)}；补充：${f.lunchNote||'未填写'}\n- 晚餐：${f.dinner||'未填写'}；实际食用：${label('mealAmount',f.dinnerAmount)}；补充：${f.dinnerNote||'未填写'}\n- 加餐：${f.snackNote||'未填写'}；实际食用：${label('mealAmount',f.snackAmount)}\n- 加餐／份量说明：${f.foodNotes||'未填写'}\n- 当日食用成本估算：${number(f.cost)}元；当日采购付款：${number(f.purchase)}元。\n- 咖啡：${f.coffeeProduct||'产品未填写'}；第1杯${f.coffeeTime1||'时间未填'}／${number(f.coffeeGrams1)}克；第2杯${f.coffeeTime2||'时间未填'}／${number(f.coffeeGrams2)}克。\n- 体重${number(f.weight)}kg；腰围${number(f.waist)}cm；测量条件${f.measureNotes||'未填写'}。\n- 自由补充：${f.notes||'未填写'}\n- 保存时间：${d.updated}。\n\n`;}
+  for(const d of q.days){const f=d.fields;if(f.samsungSleep)out+=`- ${f.date} 导入睡眠：${sleepLine(f.samsungSleep)}。\n`;out+=`### ${f.date}｜每日反馈 ${d.id}\n\n- 活动：${label('activity',f.activity)}；羽毛球${number(f.badmintonMinutes)}分钟。\n- 反馈时段：${label('feedbackScope',f.feedbackScope)}；下午饥饿：${label('afternoonHunger',f.afternoonHunger)}；胃肠感受：${label('digestion',f.digestion)}。\n- 饥饿：${label('hunger',f.hunger)}；精神：${label('energy',f.energy)}；睡眠：${label('sleep',f.sleepQuality)}。\n- 早餐：${f.breakfast||'未填写'}；实际食用：${label('mealAmount',f.breakfastAmount)}；补充：${f.breakfastNote||'未填写'}\n- 午餐：${f.lunch||'未填写'}；实际食用：${label('mealAmount',f.lunchAmount)}；补充：${f.lunchNote||'未填写'}\n- 晚餐：${f.dinner||'未填写'}；实际食用：${label('mealAmount',f.dinnerAmount)}；补充：${f.dinnerNote||'未填写'}\n- 加餐：${f.snackNote||'未填写'}；实际食用：${label('mealAmount',f.snackAmount)}\n- 加餐／份量说明：${f.foodNotes||'未填写'}\n- 当日食用成本估算：${number(f.cost)}元；当日采购付款：${number(f.purchase)}元。\n- 咖啡：${f.coffeeProduct||'产品未填写'}；第1杯${f.coffeeTime1||'时间未填'}／${number(f.coffeeGrams1)}克；第2杯${f.coffeeTime2||'时间未填'}／${number(f.coffeeGrams2)}克。\n- 体重${number(f.weight)}kg；腰围${number(f.waist)}cm；测量条件${f.measureNotes||'未填写'}。\n- 自由补充：${f.notes||'未填写'}\n- 保存时间：${d.updated}。\n\n`;}
   const missing=Array.from({length:q.totalDays},(_,i)=>plusDays(t.start,i)).filter(d=>!q.days.some(e=>e.fields.date===d));out+=`## 缺失与下一阶段讨论\n\n- 尚无每日反馈的日期：${missing.join('、')||'无'}。\n- 核对动作版本、阻力、休息、完成质量后，再讨论次数变化。\n- 结合持续饥饿、精神、恢复和实际食物份量讨论饮食；不把空白、包装重量或单日体重当作结论。\n- 保持／调整：待本人确认。\n- 调整依据与尚缺信息：\n\n> 将此Markdown放入Obsidian，或发给助手读取。助手不能默认直接访问账号记录。完整JSON备份另用于恢复。\n`;
   return out;
 }

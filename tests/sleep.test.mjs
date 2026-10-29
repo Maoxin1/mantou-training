@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {parseSleep} from '../dist/sleep-core.mjs';
+import {writeEntry,validateJournal,emptyJournal} from '../dist/journal.mjs';
+import {mergeJournal} from '../dist/journal-sync.mjs';
+const csv=(h,r)=>'samsung,1\n'+h+'\n'+r+'\n';
+const sleep=csv('datauuid,start_time,end_time,time_offset','sample-id,2020-01-01 23:00:00.000,2020-01-02 00:00:00.000,UTC+0800');
+const stages=csv('sleep_id,start_time,end_time,stage','sample-id,2020-01-01 23:00:00.000,2020-01-02 00:00:00.000,40002');
+test('UTC export becomes local wake date; complete stages give actual sleep',()=>{const r=parseSleep(sleep,stages).records[0];assert.equal(r.date,'2020-01-02');assert.equal(r.actualMinutes,60);assert.equal(r.offsetMinutes,480);});
+test('missing or overlapping stage intervals never invent actual sleep',()=>{assert.equal(parseSleep(sleep,csv('sleep_id,start_time,end_time,stage','')).records[0].actualMinutes,null);assert.equal(parseSleep(sleep,stages+stages.split('\n')[2]+'\n').records[0].actualMinutes,null);});
+test('missing timezone is rejected instead of guessed',()=>assert.equal(parseSleep(sleep.replace('UTC+0800',''),stages).records.length,0));
+test('sleep coexists with food and manual sleep, survives backup and merges across devices',()=>{const base={journal:emptyJournal()};writeEntry(base,'daily:2020-01-02','daily',{date:'2020-01-02',breakfast:'test',sleepHours:7});const left=structuredClone(base),right=structuredClone(base);const r=parseSleep(sleep,stages).records[0];writeEntry(left,'daily:2020-01-02','daily',{samsungSleep:r});writeEntry(right,'daily:2020-01-02','daily',{energy:'good'});const m=mergeJournal(base.journal,left.journal,right.journal);assert.equal(m.conflicts.length,0);const restored=validateJournal(JSON.parse(JSON.stringify(m.merged)));assert.equal(restored.entries['daily:2020-01-02'].fields.samsungSleep.actualMinutes,60);assert.equal(restored.entries['daily:2020-01-02'].fields.sleepHours,7);assert.equal(restored.entries['daily:2020-01-02'].fields.energy,'good');});
