@@ -11,10 +11,8 @@ Thumbs.db
 coverage/
 dist/auth-sdk.mjs
 .vercel/
-.env*.json
 dist/cloud-config.mjs
 .openai/
 
 dist/meal-zip.mjs
-.vercel
-.env*
+test-output/

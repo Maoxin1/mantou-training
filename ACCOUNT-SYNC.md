@@ -8,12 +8,16 @@
 
 取得同一环境对应的 Postgres 连接字符串，在自己的数据库执行 [migrations/001-training-sync.sql](migrations/001-training-sync.sql)。API 会按签名中的用户 ID 读写 `training_sync` 表。建表 SQL 启用 RLS；服务端角色必须具有所需权限，不能把服务端连接字符串交给浏览器。
 
+使用餐次照片时，再执行 [migrations/002-meal-photos.sql](migrations/002-meal-photos.sql)。文字记录与照片各用独立表；两套 API 使用同一环境的认证和数据库连接。
+
 ## 2. 配置 Vercel
 
 1. Fork 仓库，导入自己的 Vercel 项目；Root Directory 保留仓库根目录，使用 `vercel.json` 的构建与输出设置。
 2. 在相应部署环境添加 `AUTH_URL` 和 `DATABASE_URL`，名称和值的形式见 [.env.example](.env.example)。只有 `AUTH_URL` 会写入前端配置。
 3. 重新部署，使配置同时进入构建与服务端运行环境。改变 Auth URL 后须重新构建，避免前端与 API 使用不同认证服务。
 4. 在 Auth 服务中核对可信来源与 Vercel 域名一致。预览环境建议使用独立服务和数据库；没有配置时保留本机模式。
+
+Vercel 的通用 Preview 变量可能与 Production 共用值。验收分支应单独设置 `AUTH_URL`、`DATABASE_URL`，将该预览域名加入测试认证服务的可信来源，再重新部署。不要只更换前端认证地址而保留生产数据库连接。
 
 `npm start` 仅提供静态界面；完整同步 API 由 Vercel 的 Node.js Functions 运行。
 
