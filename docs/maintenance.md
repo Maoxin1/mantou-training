@@ -33,3 +33,11 @@ Zod 4.5.4通过认证客户端进入浏览器产物。定向覆盖为公告修�
 审计仍有9项告警（8 low、1 critical），不能标记安全审计全部通过。Neon SDK 0.7.0-beta固定Better Auth 1.7.6，且其auth-ui存在既有peer版本不一致。我们的API使用jose校验JWT，并未部署Better Auth服务端；浏览器包含认证插件客户端不等于启用了服务端插件。Critical公告需Magic Link与OAuth等组合条件；Neon托管实例运行版本及插件配置尚未核对，不能推定已修复或必然受影响。公告：https://github.com/advisories/GHSA-965c-763c-88jm 。npm已能查询1.7.7，但SDK依赖仍固定旧版，不强制跨包改写托管服务。
 
 下一项：核对Neon托管认证修复状态与SDK兼容升级；本地依赖升级不能替代服务端验证。
+
+### 2026-10-31 托管认证配置只读核查
+
+通过Neon配置接口核对生产main分支：认证由Neon持有；配置存在共享Google OAuth，即使训练卡只显示邮箱登录，也不能推定服务端未启用OAuth。配置接口未给出Better Auth运行版本、Magic Link插件状态或OAuth Proxy状态，因此GHSA-965c-763c-88jm与GHSA-r4xp-prcw-77qf的适用性仍未证实。没有调用登录绕过接口或更改认证方式。
+
+npm注册表再次确认SDK latest=0.7.0-beta，固定better-auth=1.7.6，暂无可直接升级的SDK稳定候选。上游Better Auth changelog确认1.7.7包含修复：https://better-auth.com/changelog 。版本已在注册表可查询，部分公告的“尚未发布”文字存在时效差异。
+
+需要Neon支持确认：本项目托管认证是否已覆盖上述两条公告的修复，以及当前实例的Magic Link／OAuth Proxy启用状态。仅需提供项目和分支标识，不发送数据库连接串、验证码或令牌。未获用户明确授权，不代用户发送支持消息。现有公开信息与配置接口不足以关闭此待办。
