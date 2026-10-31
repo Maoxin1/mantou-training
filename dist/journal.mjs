@@ -42,7 +42,7 @@ function safeJSON(x,depth=0){
 }
 export function validatePlan(plan){
   if(!Array.isArray(plan)||plan.length!==5)throw Error('备份中的试行计划不完整');
-  for(let i=0;i<5;i++){const e=plan[i];if(!obj(e)||e.id!==DEFAULT_PLAN[i].id||!Number.isInteger(e.sets)||e.sets<1||e.sets>6||!Number.isInteger(e.min)||!Number.isInteger(e.max)||e.min<1||e.max<e.min||e.max>100||!Number.isFinite(e.rest)||e.rest<30||e.rest>300||typeof e.sides!=='boolean'||typeof e.name!=='string'||typeof e.variant!=='string'||typeof e.load!=='string')throw Error('备份含无效试行动作');}
+  for(let i=0;i<5;i++){const e=plan[i];if(e.paused!==undefined&&typeof e.paused!=='boolean')throw Error('暂停状态无效');if(e.pauseReason!==undefined&&(typeof e.pauseReason!=='string'||e.pauseReason.length>200))throw Error('暂停说明无效');if(!obj(e)||e.id!==DEFAULT_PLAN[i].id||!Number.isInteger(e.sets)||e.sets<1||e.sets>6||!Number.isInteger(e.min)||!Number.isInteger(e.max)||e.min<1||e.max<e.min||e.max>100||!Number.isFinite(e.rest)||e.rest<30||e.rest>300||typeof e.sides!=='boolean'||typeof e.name!=='string'||typeof e.variant!=='string'||typeof e.load!=='string')throw Error('备份含无效试行动作');}
   safeJSON(plan);return plan;
 }
 export function validateJournal(value){
@@ -123,7 +123,7 @@ export function trialMarkdown(s,trialId=activeTrial(s)?.id,asOf=today()){
   const pain=q.list.filter(e=>e.fields.pain==='yes'||String(e.fields.painNotes||'').trim()||sessionExercises(s,e).some(x=>x.log?.fields.rows.some(r=>r.quality==='pain')));
   if(pain.length)out+=`- 待优先复核的不适记录：${pain.map(e=>e.fields.date+'（'+e.id+'）').join('、')}。停止引起疼痛的相关动作；持续或加重时评估。\n`;
   out+='\n## 当前安排及调整历史\n\n周二、周四全身训练；周末一次羽毛球按实际日期记录。正课最多30分钟，热身另计约5分钟。\n\n| 动作 | 目标 | 版本与阻力 |\n|---|---|---|\n';
-  for(const e of t.plan)out+=`| ${cell(e.name)} | ${e.sets}组 × ${e.sides?'每侧':''}${e.min}–${e.max}次 | ${cell(e.variant)}；${cell(e.load)} |\n`;
+  for(const e of t.plan)out+=`| ${cell(e.name)} | ${e.paused?'已暂停：'+cell(e.pauseReason||'等待确认恢复'):e.sets+'组 × '+(e.sides?'每侧':'')+e.min+'–'+e.max+'次'} | ${cell(e.variant)}；${cell(e.load)} |\n`;
   out+='\n';for(const c of t.changes)out+=`- ${c.at}：${c.reason}\n  - 调整前：${cell(JSON.stringify(c.before))}\n  - 调整后：${cell(JSON.stringify(c.after))}\n`;
   out+='\n## 可比较的动作事实\n\n> 仅把同一动作、版本和阻力的已填数据并列；休息、动作质量、左右侧和恢复仍需结合下方原记录核对。次数上升不自动等于力量增长。\n\n';
   const groups=new Map();for(const se of q.list)for(const {plan,log}of sessionExercises(s,se))for(const [i,r]of (log?.fields.rows||[]).entries())if(hasActual(r)){

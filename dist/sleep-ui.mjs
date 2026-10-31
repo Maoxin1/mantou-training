@@ -2,7 +2,7 @@ import {unzipSync,strFromU8} from './meal-zip.mjs';
 import {parseSleep,sleepLine,mergeSleepSegments} from './sleep-core.mjs';
 import {entry,writeEntry,today} from './journal.mjs';
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-export function sleepSection(s,date){const r=entry(s,'daily:'+date)?.fields.samsungSleep;return r?`<p class="hint">${esc(sleepLine(r))}</p>`:'';}
+export function sleepSection(s,date){const r=entry(s,'daily:'+date)?.fields.samsungSleep;return r?`<p class="hint">${esc(sleepLine(r))}</p>${!r.segments&&!Object.hasOwn(r,'groupId')?'<p class="hint">旧版单条导入：可能未包含同一晚的其他片段。可重新导入原ZIP核对完整性。</p>':''}`:'';}
 export function bindSleepImport({state,save,modal,notify,refresh}){
   document.getElementById('importSleep').onclick=()=>{
     modal('导入三星睡眠',`<p class="hint">选择三星健康导出 ZIP，只在本机读取睡眠 CSV。选择一晚后预览确认；记录按醒来日期归档，登录后随每日记录同步。此入口为文件导入。</p><input type="file" id="sleepFile" accept=".zip"><p id="sleepStatus" role="status"></p><div id="sleepPreview"></div>`);

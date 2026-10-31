@@ -1,10 +1,10 @@
-<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>更新训练卡</title><style>body{font:16px system-ui,sans-serif;background:#f5f5f7;color:#1d1d1f;margin:0;padding:48px 24px}main{max-width:440px;margin:auto}h1{font-size:28px}p{line-height:1.7;color:#666}button{font:inherit;background:#0071e3;color:white;border:0;border-radius:14px;padding:16px;width:100%;margin-top:20px}button:disabled{opacity:.6}</style><main><h1>更新训练卡</h1><p>加载支持三星睡眠导入的新版。你的账号、训练记录和本机照片会保留。</p><button id="update">更新并打开训练卡</button><p id="status" role="status">请保持联网。</p><small>版本 2.3.1</small></main><script type="module">
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>更新训练卡</title><style>body{font:16px system-ui,sans-serif;background:#f5f5f7;color:#1d1d1f;margin:0;padding:48px 24px}main{max-width:440px;margin:auto}h1{font-size:28px}p{line-height:1.7;color:#666}button{font:inherit;background:#0071e3;color:white;border:0;border-radius:14px;padding:16px;width:100%;margin-top:20px}button:disabled{opacity:.6}</style><main><h1>更新训练卡</h1><p>加载支持三星睡眠导入的新版。你的账号、训练记录和本机照片会保留。</p><button id="update">更新并打开训练卡</button><p id="status" role="status">请保持联网。</p><small>版本 2.3.2</small></main><script type="module">
 const b=document.getElementById('update'),s=document.getElementById('status');
 b.onclick=async()=>{b.disabled=true;s.textContent='正在下载新版，请稍等…';try{
   if(!navigator.onLine)throw Error('请先联网再更新');
   const r=await navigator.serviceWorker.register('/sw.js',{scope:'/',updateViaCache:'none'});await r.update();
   if(r.installing){await new Promise((resolve,reject)=>{const w=r.installing,t=setTimeout(()=>reject(Error('下载尚未完成，请保持联网后重试')),45000);const check=()=>{if(w.state==='installed'||w.state==='activated'){clearTimeout(t);resolve();}else if(w.state==='redundant'){clearTimeout(t);reject(Error('新版下载未完成，请重试'));}};w.addEventListener('statechange',check);check();});}
   if(r.waiting){await new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(Error('新版正在启动，请再次点击更新')),15000);navigator.serviceWorker.addEventListener('controllerchange',()=>{clearTimeout(t);resolve();},{once:true});r.waiting.postMessage({type:'ACTIVATE_UPDATE'});});}
-  await navigator.serviceWorker.ready;s.textContent='更新完成，正在打开…';location.replace('/?updated=2.3.1');
+  await navigator.serviceWorker.ready;s.textContent='更新完成，正在打开…';location.replace('/?updated=2.3.2');
 }catch(e){s.textContent=e.message||'更新失败，请保持联网后重试';b.disabled=false;}};
 </script></html>
