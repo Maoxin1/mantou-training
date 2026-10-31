@@ -1,6 +1,6 @@
 {
   "name": "mantou-training",
-  "version": "2.3.4",
+  "version": "2.3.5",
   "private": true,
   "type": "module",
   "description": "Personal local-first training cards with rules-based progression and Obsidian exports",
@@ -43,6 +43,16 @@
     "playwright": "^1.64.1"
   },
   "overrides": {
-    "zod": "4.6.6"
+    "zod": "4.6.6",
+    "@better-auth/core": "1.7.7",
+    "@better-auth/drizzle-adapter": "1.7.7",
+    "@better-auth/kysely-adapter": "1.7.7",
+    "@better-auth/memory-adapter": "1.7.7",
+    "@better-auth/mongo-adapter": "1.7.7",
+    "@better-auth/oauth-provider": "1.7.7",
+    "@better-auth/passkey": "1.7.7",
+    "@better-auth/prisma-adapter": "1.7.7",
+    "@better-auth/telemetry": "1.7.7",
+    "better-auth": "1.7.7"
   }
 }

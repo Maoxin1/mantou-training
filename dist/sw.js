@@ -1,5 +1,5 @@
 /* Only the static training shell is cached. Text stays in localStorage; private meal photos stay in account-scoped IndexedDB. */
-const CACHE='mantou-training-shell-v18';
+const CACHE='mantou-training-shell-v19';
 const SHELL=['/','/journal-cards.mjs','/sleep-core.mjs','/sleep-ui.mjs','/meal-core.mjs','/meal-store.mjs','/meal-photos.mjs','/meal-zip.mjs','/journal.mjs','/journal-ui.mjs','/journal-sync.mjs','/cloud.mjs','/cloud-token.mjs','/cloud-config.mjs','/auth-sdk.mjs','/sync-core.mjs','/timestamps.mjs','/style.css','/app.mjs','/engine.mjs','/pwa.mjs','/manifest.webmanifest','/icons/icon-192.png','/icons/icon-512.png','/icons/icon-maskable-512.png','/icons/apple-touch-icon.png','/icons/icon.svg'];
 
 const PATHS=new Set(SHELL);
