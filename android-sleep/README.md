@@ -5,3 +5,11 @@ This is a diagnostic build, not automatic synchronization. Only READ_SLEEP is re
 Build with Java 17, Gradle 8.13, Android SDK 36: `gradle -p android-sleep :app:assembleDebug :app:lintDebug`. The dedicated GitHub Actions workflow builds an installable debug APK artifact. Actual permissions and data reads still require physical-device verification. Debug signing is for temporary diagnosis, not a long-term release identity.
 
 User target: Galaxy S23 Ultra, China firmware, Android 16 / One UI 8.5, Samsung Health 7.1.0.054. Sleep read/write permissions granted to Samsung Health; manually synchronized, but Health Connect UI still has no sleep category. No device health data belongs in this repository.
+
+## 2026-11-01 build verification
+
+Diagnostic APK 0.1.0 compiled successfully with Android SDK 36. GitHub Actions assembleDebug and lintDebug both passed: https://github.com/Maoxin1/mantou-training/actions/runs/41192518150 . Artifact name: mantou-sleep-diagnostic. Source commit: f9b874b.
+
+APK size 11,432,800 bytes; SHA-256 dfa35a53693fdb39cbeb1e4208684e666bd88a116b75ce5c25e23672331d90d2. Binary manifest inspection confirms READ_SLEEP present, INTERNET/WRITE_SLEEP/background health read permissions absent. This is not an independent cryptographic signature audit. No phone/emulator execution has been completed; installation, permission grant and actual reading remain device acceptance tasks.
+
+Install on the user's S23 Ultra, open mantou 睡眠诊断, tap 检查睡眠记录, grant only sleep read access. Return the displayed result: API unavailable / permission denied / read error / zero records / records with origins. A zero count means no records visible to this query, not proof that Samsung Health has no underlying sleep data. Do not fabricate data or upload snapshots automatically.
