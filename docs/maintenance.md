@@ -2,7 +2,7 @@
 
 ## 当前结构
 
-`package.json` 当前为 2.2.1。正式站以 `main` 部署；版本号、提交和 GitHub Release 是不同标识，不应只凭界面版本判断提交是否上线。
+`package.json` 当前为 2.3.4。正式站以 `main` 部署；版本号、提交和 GitHub Release 是不同标识，不应只凭界面版本判断提交是否上线。
 
 原同步修复 PR #1 已由 PR #3 整合并发布，关闭旧 PR 并保留其验收历史。
 
@@ -25,3 +25,11 @@
 3. 核对 GitHub CI、Vercel 部署提交和生产域名；验证认证配置属于预期环境。
 4. 执行适用的线上检查；由用户确认真实账号同步。保留尚未覆盖的场景和回退所需提交信息。
 5. 更新变更记录；仅在明确准备版本发布时创建标签和 GitHub Release。
+
+## 2026-10-31 依赖审计
+
+Zod 4.5.4通过认证客户端进入浏览器产物。定向覆盖为公告修复版4.6.6；锁文件仅该依赖变化，78项测试通过（含模拟OTP、登录、会话、退出）。公告：https://github.com/advisories/GHSA-mrhx-c7xc-m3w5 。此覆盖替代PR #2试验的本地Zod修复目的，未据此合并该草稿。
+
+审计仍有9项告警（8 low、1 critical），不能标记安全审计全部通过。Neon SDK 0.7.0-beta固定Better Auth 1.7.6，且其auth-ui存在既有peer版本不一致。我们的API使用jose校验JWT，并未部署Better Auth服务端；浏览器包含认证插件客户端不等于启用了服务端插件。Critical公告需Magic Link与OAuth等组合条件；Neon托管实例运行版本及插件配置尚未核对，不能推定已修复或必然受影响。公告：https://github.com/advisories/GHSA-965c-763c-88jm 。npm已能查询1.7.7，但SDK依赖仍固定旧版，不强制跨包改写托管服务。
+
+下一项：核对Neon托管认证修复状态与SDK兼容升级；本地依赖升级不能替代服务端验证。
