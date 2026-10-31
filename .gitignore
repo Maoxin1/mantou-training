@@ -16,3 +16,7 @@ dist/cloud-config.mjs
 
 dist/meal-zip.mjs
 test-output/
+
+android-sleep/.gradle/
+android-sleep/**/build/
+android-sleep/local.properties
