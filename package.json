@@ -1,6 +1,6 @@
 {
   "name": "mantou-training",
-  "version": "2.3.2",
+  "version": "2.3.3",
   "private": true,
   "type": "module",
   "description": "Personal local-first training cards with rules-based progression and Obsidian exports",
