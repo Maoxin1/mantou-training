@@ -22,14 +22,14 @@ test('latest deletion wins; a later edit restores the entry',()=>{
   checkBoth(base,l,r,s=>assert(s.journal.entries[daily].deleted));
   feedback(r,'restored','2026-10-21T12:00:00Z');checkBoth(base,l,r,s=>{assert(!s.journal.entries[daily].deleted);assert.equal(s.journal.entries[daily].fields.notes,'restored');});
 });
-test('same-session feedback updates completion totals and whole row data from latest edit',()=>{
+test('same-session status uses latest feedback while concurrent row edits require a choice',()=>{
   const base=fresh();startTrial(base,{start:'2026-10-12'});const session=startSession(base,{date:'2026-10-20'}),key=exerciseEntryId(session,'push');
   const l=clone(base),r=clone(base);for(const [s,at,reps,status] of [[l,old,6,'partial'],[r,newer,10,'complete']]){
     writeEntry(s,session,'session',{status});s.journal.entries[session].updated=at;s.journal.entries[session].fieldUpdated.status=at;
     const rows=blankRows(s.journal.entries[session].fields.plan[0]);rows[0].reps=reps;
     writeEntry(s,key,'exercise',{sessionId:session,exerciseId:'push',rows});s.journal.entries[key].updated=at;s.journal.entries[key].fieldUpdated.rows=at;
   }
-  checkBoth(base,l,r,s=>{assert.equal(trialSummary(s,undefined,'2026-10-25').complete,1);assert.equal(s.journal.entries[key].fields.rows[0].reps,10);});
+  for(const [a,b] of [[l,r],[r,l]]){const m=mergeStates(base,a,b);assert.equal(trialSummary(m.merged,undefined,'2026-10-25').complete,1);assert.equal(m.conflicts.length,1);assert.equal(m.conflicts[0].local[0].reps,a.journal.entries[key].fields.rows[0].reps);assert.equal(m.conflicts[0].remote[0].reps,b.journal.entries[key].fields.rows[0].reps);}
 });
 test('latest plan adjustment wins while retaining both histories',()=>{
   const base=fresh();const id=startTrial(base,{start:'2026-10-12'}),l=clone(base),r=clone(base);

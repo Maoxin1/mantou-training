@@ -54,5 +54,13 @@ try{
   await page.locator('#todayFeedback').click();await page.locator('[data-meal=lunch]').click();await page.getByText('照片已同步；其他设备打开同一天即可查看',{exact:true}).waitFor();assert.equal(await page.locator('#mealGallery img').count(),0);
   await page.locator('[data-meal=dinner]').click();await page.locator('#mealGallery img').waitFor();await mkdir('test-output',{recursive:true});await page.screenshot({path:'test-output/meal-mobile.png',fullPage:true});
   await page.locator('#closeDialog').click();await page.locator('#quickReview').click();const downloadEvent=page.waitForEvent('download');await page.locator('#downloadTrialPhotos').click();const download=await downloadEvent;const zipped=unzipSync(await readFile(await download.path()));assert(Object.keys(zipped).some(k=>k.startsWith('photos/')));assert.match(strFromU8(zipped['复盘.md']),/剩半碗饭/);assert.match(strFromU8(zipped['复盘.md']),/餐次照片/);
-  assert.deepEqual(errors,[]);console.log(`Browser + ${useDatabase?'isolated database':'memory storage'} PASS: photo upload, quantities, offline reload, two devices, deletion sync, ZIP review.`);await second.close();await context.close();
+  const damaged=await browser.newContext(),broken=JSON.stringify({local:fresh(),base:{},revision:1});
+  await damaged.addInitScript(({user,broken})=>{if(!localStorage.getItem('seeded-damage')){localStorage.setItem('seeded-damage','1');localStorage.setItem('mantou-training-account',JSON.stringify({id:user,email:'synthetic@example.test'}));localStorage.setItem('mantou-training-account:'+user,broken);}},{user,broken});
+  const recovery=await damaged.newPage();recovery.on('pageerror',e=>errors.push(e.message));await recovery.goto(url);
+  await recovery.locator('#startTrial').click();await recovery.locator('#startTrialForm button[type=submit]').click();await recovery.locator('#closeDialog').click();
+  assert.equal(await recovery.evaluate(user=>localStorage.getItem('mantou-training-account:'+user),user),broken);
+  await recovery.click('#accountShortcut');const original=recovery.waitForEvent('download');await recovery.getByRole('button',{name:'下载账号原始缓存'}).click();assert.equal(await readFile(await(await original).path(),'utf8'),broken);
+  recovery.once('dialog',d=>d.accept());await recovery.getByRole('button',{name:'保留副本并重建账号缓存'}).click();await recovery.click('[data-page=plan]');await recovery.locator('#todayFeedback').waitFor();
+  assert(await recovery.evaluate(({user,broken})=>Object.keys(localStorage).some(k=>k.startsWith('mantou-training-account:'+user+':recovery:')&&localStorage.getItem(k)===broken),{user,broken}));
+  await damaged.close();assert.deepEqual(errors,[]);console.log(`Browser + ${useDatabase?'isolated database':'memory storage'} PASS: photo upload, quantities, offline reload, two devices, deletion sync, ZIP review, damaged account recovery.`);await second.close();await context.close();
 }finally{await browser.close();server.close();}

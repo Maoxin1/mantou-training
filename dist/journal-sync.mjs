@@ -6,7 +6,17 @@ const clone=x=>x===undefined?undefined:copy(x);
 export function setJournalPath(j,path,value){let parent=j;for(const k of path.slice(0,-1)){if(!parent[k])parent[k]={};parent=parent[k];}const key=path.at(-1);if(value===undefined)delete parent[key];else parent[key]=clone(value);}
 export function mergeJournal(base,left,right){
   const b=validateJournal(base),l=validateJournal(left),r=validateJournal(right),merged=emptyJournal(),conflicts=[];
-  const choose=(path,old,a,z,label,aTime,zTime)=>{let pick;if(same(a,z))pick=z;else if(compareTimestamps(aTime,zTime))pick=compareTimestamps(aTime,zTime)>0?a:z;else if(same(a,old))pick=z;else if(same(z,old))pick=a;else{pick=a;conflicts.push({key:'journal:'+JSON.stringify(path),label,local:clone(a),remote:clone(z)});}setJournalPath(merged,path,pick);};
+  const choose=(path,old,a,z,label,aTime,zTime,protectRows=false)=>{let pick;
+    if(same(a,z))pick=z;
+    else if(protectRows&&same(a,old))pick=z;
+    else if(protectRows&&same(z,old))pick=a;
+    else if(protectRows&&!same(a,old)&&!same(z,old)){
+      pick=a;conflicts.push({key:'journal:'+JSON.stringify(path),label,local:clone(a),remote:clone(z)});
+    }else if(compareTimestamps(aTime,zTime))pick=compareTimestamps(aTime,zTime)>0?a:z;
+    else if(same(a,old))pick=z;else if(same(z,old))pick=a;
+    else{pick=a;conflicts.push({key:'journal:'+JSON.stringify(path),label,local:clone(a),remote:clone(z)});}
+    setJournalPath(merged,path,pick);
+  };
   for(const id of new Set([...Object.keys(l.trials),...Object.keys(r.trials)])){
     const a=l.trials[id],z=r.trials[id],old=b.trials[id];if(!a||!z){merged.trials[id]=clone(a||z);continue;}
     merged.trials[id]={};for(const k of new Set([...Object.keys(a),...Object.keys(z)])){
@@ -26,7 +36,7 @@ export function mergeJournal(base,left,right){
     merged.entries[id]={id,kind:a.kind,created:[a.created,z.created].sort()[0],updated:latestTimestamp([a.updated,z.updated])||a.updated,deleted:a.deleted||z.deleted,fields:{},fieldUpdated:{}};
     for(const k of new Set([...Object.keys(a.fields),...Object.keys(z.fields)])){
       const at=a.fieldUpdated?.[k]||a.updated,zt=z.fieldUpdated?.[k]||z.updated;
-      choose(['entries',id,'fields',k],old?.fields[k],a.fields[k],z.fields[k],`${a.fields.date||z.fields.date||'动作反馈'} · ${k}`,a.fields[k]===undefined?undefined:at,z.fields[k]===undefined?undefined:zt);
+      choose(['entries',id,'fields',k],old?.fields[k],a.fields[k],z.fields[k],`${a.fields.date||z.fields.date||'动作反馈'} · ${k==='rows'?'训练组次（请核对双方全部组次）':k}`,a.fields[k]===undefined?undefined:at,z.fields[k]===undefined?undefined:zt,k==='rows');
       const picked=merged.entries[id].fields[k];
       merged.entries[id].fieldUpdated[k]=same(picked,a.fields[k])&&!same(picked,z.fields[k])?at:same(picked,z.fields[k])&&!same(picked,a.fields[k])?zt:latestTimestamp([at,zt])||at;
     }
