@@ -44,6 +44,10 @@ try{
   await page.locator('#mealAmounts input').fill('剩半碗饭');await page.locator('#mealAmounts select').selectOption('part');
   await context.setOffline(true);
   await page.locator('[data-meal=dinner]').click();await page.locator('#mealFile').setInputFiles({name:'offline.jpg',mimeType:'image/jpeg',buffer:Buffer.from(image,'base64')});
+  // The previous meal's image may still be visible while the new photo is encoding.
+  // Wait for the upload handler to finish before closing the dialog or reloading.
+  await page.waitForFunction(()=>!document.getElementById('mealFile').disabled);
+  assert(await page.evaluate(async()=>{const {mealStore}=await import('/meal-photos.mjs');return (await mealStore().all()).some(p=>p.meal==='dinner'&&!p.deleted&&p.pending);}));
   await page.locator('#mealGallery img').waitFor();await page.locator('#closeDialog').click();await page.reload();await page.locator('#todayFeedback').click();await page.locator('[data-meal=dinner]').click();await page.locator('#mealGallery img').waitFor();
   assert.match(await page.locator('#photoStatus').innerText(),/离线/);
   await context.setOffline(false);await page.locator('#retryPhotos').click();await page.getByText('照片已同步；其他设备打开同一天即可查看',{exact:true}).waitFor();await page.locator('#closeDialog').click();
