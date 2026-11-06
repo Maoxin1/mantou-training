@@ -15,12 +15,17 @@ export async function mealRequest(owner,method,query,body){
   let data;try{data=await r.json();}catch{throw Error('照片服务暂不可用，本机照片保留');}if(!r.ok)throw Error(data.error||'照片同步失败');return data;
 }
 export function mountCloud({guest,apply,notify}){
-  let ownsWindow=!navigator.locks,identity=null,store=null,busy=false,message='未登录 · 记录保存在本机',timer;
+  let ownsWindow=!navigator.locks,identity=null,store=null,cacheFailure=null,busy=false,message='未登录 · 记录保存在本机',timer;
   try{identity=JSON.parse(localStorage.getItem(ID)||'null');}catch{}
   const section=node('details');section.className='card cloud-panel';section.style.margin='12px 0';
   const summary=node('summary','邮箱账号与同步'),status=node('p',message),content=node('div');status.setAttribute('role','status');section.append(summary,content);document.querySelector('header').after(status,section);status.hidden=true;const placePanel=()=>{const slot=document.getElementById('accountSlot');if(slot)slot.append(section);else section.remove();};document.addEventListener('training:render',placePanel);placePanel();
   function setMessage(text){message=text;status.textContent=text;window.dispatchEvent(new CustomEvent('training:cloud-status',{detail:text}));}
-  function activate(user){identity={id:user.id,email:user.email};store=new SyncStore({storage:localStorage,key:PREFIX+user.id,initial:fresh()});localStorage.setItem(ID,JSON.stringify(identity));apply(clone(store.data.local),true);draw();}
+  function activate(user){
+    identity={id:user.id,email:user.email};
+    try{store=new SyncStore({storage:localStorage,key:PREFIX+user.id,initial:fresh()});cacheFailure=null;}
+    catch(e){store=null;cacheFailure={user:identity,key:PREFIX+user.id};draw();throw e;}
+    localStorage.setItem(ID,JSON.stringify(identity));apply(clone(store.data.local),true);draw();
+  }
   function update(){if(store)apply(clone(store.data.local),true);draw();}
   async function transport(accountId,method,body){const token=await getSyncToken(AUTH_URL);const response=await fetch('/api/sync',{method,cache:'no-store',headers:{'X-Account-Id':accountId,Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15000)});if(response.status===409)return {conflict:true};let data;try{data=await response.json();}catch{throw Error('同步接口未就绪；本机记录仍保留');}if(!response.ok)throw Error(data.error||'同步暂不可用');return data;}
   async function sync(){
@@ -36,13 +41,27 @@ export function mountCloud({guest,apply,notify}){
   function draw(){
     content.replaceChildren();
     if(!auth){content.append(node('p','此部署使用本机模式。记录可离线保存、导出与恢复；邮箱同步需由部署者配置。'));return;}
+    if(cacheFailure){
+      const failure=cacheFailure;
+      content.append(node('p','账号缓存无法读取。原始内容保留，保存和同步已暂停。请下载原始缓存后恢复，或保留副本并重新读取云端。'));
+      const raw=node('button','下载账号原始缓存');raw.className='btn secondary';raw.onclick=()=>{const url=URL.createObjectURL(new Blob([localStorage.getItem(failure.key)||''],{type:'text/plain'})),a=node('a');a.href=url;a.download='训练卡账号原始缓存.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+      const reset=node('button','保留副本并重建账号缓存');reset.className='btn secondary';reset.onclick=()=>{try{
+        if(!ownsWindow)throw Error('请在原训练窗口处理');
+        if(!confirm('将原始账号缓存另存副本，再重新读取云端？原缓存中尚未同步的内容需用下载的原始文件核对。'))return;
+        const value=localStorage.getItem(failure.key);if(value!==null)localStorage.setItem(failure.key+':recovery:'+crypto.randomUUID(),value);
+        // A preserved copy is required before replacing the unreadable account envelope.
+        localStorage.setItem(failure.key,JSON.stringify({local:fresh(),base:fresh(),revision:0,pending:true,conflict:null}));
+        activate(failure.user);schedule();
+      }catch(e){notify(e.message);}};
+      content.append(raw,reset);return;
+    }
     if(identity&&store){
       content.append(node('p',identity.email));
       const now=node('button','立即同步');now.className='btn secondary';now.onclick=sync;content.append(now);
       const hasGuest=Object.values(guest().exercises).some(e=>e.records.length||e.changes.length||e.validation||e.blocked)||Object.keys(guest().journal?.entries||{}).length>0||Object.keys(guest().journal?.trials||{}).length>0;
       if(hasGuest){const migrate=node('button','将此浏览器原有记录迁入账号');migrate.className='btn secondary';migrate.onclick=()=>{if(!confirm('先导出原有记录备份。迁入将与云端比较；反馈按实际修改时间合并；时间相同或无法判断时需要选择。继续？'))return;store.import(guest());update();schedule();};content.append(migrate);}
       if(store.data.conflict){
-        const c=store.data.conflict,choices={};const quick=node('div');for(const [side,text]of [['local','保留本机差异并合并'],['remote','保留云端差异并合并']]){const button=node('button',text);button.className=side==='local'?'btn':'btn secondary';button.onclick=async()=>{if(!ownsWindow){notify('请在原训练窗口处理');return;}try{store.resolve(Object.fromEntries(c.conflicts.map(item=>[item.key,side])));update();setMessage('已保存选择 · 正在同步');await sync();}catch(e){notify(e.message);}};quick.append(button);}content.append(quick,node('p','不同日期自动保留，反馈按最新修改时间合并；无法判断先后时，使用你选的一边。双方备份会自动保存在本机。'));content.append(node('p','这些差异的时间戳相同或不足以判断先后，请选择版本。不同日期的记录会保留，继续训练仍可保存本机。'));
+        const c=store.data.conflict,choices={};const quick=node('div');for(const [side,text]of [['local','保留本机差异并合并'],['remote','保留云端差异并合并']]){const button=node('button',text);button.className=side==='local'?'btn':'btn secondary';button.onclick=async()=>{if(!ownsWindow){notify('请在原训练窗口处理');return;}try{store.resolve(Object.fromEntries(c.conflicts.map(item=>[item.key,side])));update();setMessage('已保存选择 · 正在同步');await sync();}catch(e){notify(e.message);}};quick.append(button);}content.append(quick,node('p','不同日期自动保留。双方都修改的组次和无法判断先后的字段，使用你选的一边。双方备份会自动保存在本机。'));content.append(node('p','双方都修改了训练组次，或同一字段无法判断修改先后。请核对双方内容并选择版本；不同日期的记录保留，双方原件存入冲突备份。'));
         for(const item of c.conflicts){const label=node('label',item.label||(item.key.startsWith('exercise:')?c.merged.exercises[item.key.slice(9)].name:item.key)),select=node('select');select.className='text-input';for(const [v,t]of [['','请选择'],['local','此设备版本'],['remote','云端／另一设备版本']]){const o=node('option',t);o.value=v;select.append(o);}select.onchange=()=>choices[item.key]=select.value;label.append(select);content.append(label);if(item.key.startsWith('journal:')){for(const [side,title]of [['local','本机'],['remote','云端']]){const preview=node('pre',title+'：'+JSON.stringify(item[side]??'未填写',null,2));preview.className='conflict-preview';content.append(preview);}}if(item.key.startsWith('exercise:'))content.append(node('p',`本机 ${item.local.records.length} 条记录，目标 ${item.local.target.join('/')}；云端 ${item.remote.records.length} 条记录，目标 ${item.remote.target.join('/')}`));}
         const backup=node('button','导出冲突双方完整备份');backup.className='btn secondary';backup.onclick=()=>download(c,'training-conflict.json');content.append(backup);
         const resolve=node('button','确认所选版本并同步');resolve.className='btn';resolve.onclick=()=>{try{store.resolve(choices);update();schedule();}catch(e){notify(e.message);}};content.append(resolve);
@@ -59,10 +78,10 @@ export function mountCloud({guest,apply,notify}){
   }
   function download(value,name){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'})),a=node('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   if(!auth)identity=null;
-  if(identity){try{activate(identity);setMessage('已载入账号本机缓存 · 等待同步');}catch(e){identity=null;store=null;setMessage('账号缓存读取失败，请保留备份后重新登录');}}
+  if(identity){try{activate(identity);setMessage('已载入账号本机缓存 · 等待同步');}catch(e){store=null;setMessage('账号缓存读取失败，请下载原始缓存后恢复');}}
   draw();setMessage(message);
   window.addEventListener('storage',e=>{if(e.key===ID||(store&&e.key===store.key))setMessage('另一个窗口已更新数据 · 请刷新后继续，未提交输入请先保留');});document.addEventListener('close',()=>{if(store){update();schedule();}},true);window.addEventListener('online',schedule);window.addEventListener('offline',()=>setMessage('离线 · 新记录会在联网后同步'));
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule();});
   setInterval(()=>{if(!document.hidden)sync();},30000);schedule();
-  return {import(next){if(!ownsWindow)throw Error('请关闭另一训练窗口后刷新，本窗口暂不可编辑');if(!store)return false;store.import(next);update();setMessage('备份已合并 · 如有冲突请展开处理');schedule();return true;},save(next){if(!ownsWindow)throw Error('请关闭另一训练窗口后刷新，本窗口暂不可编辑');if(!store)return false;store.edit(next);setMessage('已保存本机 · 待同步');schedule();return true;},isAccount:()=>!!store,changed:schedule};
+  return {import(next){if(cacheFailure)throw Error('请先恢复账号原始缓存');if(!ownsWindow)throw Error('请关闭另一训练窗口后刷新，本窗口暂不可编辑');if(!store)return false;store.import(next);update();setMessage('备份已合并 · 如有冲突请展开处理');schedule();return true;},save(next){if(cacheFailure)throw Error('账号原始缓存尚未恢复，当前编辑未保存');if(!ownsWindow)throw Error('请关闭另一训练窗口后刷新，本窗口暂不可编辑');if(!store)return false;store.edit(next);setMessage('已保存本机 · 待同步');schedule();return true;},isAccount:()=>!!store,changed:schedule};
 }

@@ -64,7 +64,7 @@ export function mergeStates(base,local,remote){
   return {merged:validateBackup(merged),conflicts};
 }
 export class SyncStore {
-  constructor({storage,key,initial}){this.storage=storage;this.key=key;const raw=storage.getItem(key);this.data=raw?JSON.parse(raw):{local:validateBackup(initial),base:validateBackup(initial),revision:0,pending:true,conflict:null};this.data.local=validateBackup(this.data.local);this.raw=raw;}
+  constructor({storage,key,initial}){this.storage=storage;this.key=key;const raw=storage.getItem(key);this.data=raw!==null?JSON.parse(raw):{local:validateBackup(initial),base:validateBackup(initial),revision:0,pending:true,conflict:null};this.data.local=validateBackup(this.data.local);this.data.base=validateBackup(this.data.base);if(!Number.isSafeInteger(this.data.revision)||this.data.revision<0)throw Error('账号缓存版本无效');this.raw=raw;}
   persist(next){const raw=this.storage.getItem(this.key);if(raw!==this.raw)throw Error('另一个窗口已更新记录，请刷新后重试；当前输入尚未保存。');const serialized=JSON.stringify(next);this.storage.setItem(this.key,serialized);this.raw=serialized;this.data=next;}
   edit(state){const next=validateBackup(state);let conflict=this.data.conflict;if(conflict){const m=mergeStates(this.data.base,next,conflict.state);conflict=m.conflicts.length?{...conflict,...m}:null;}this.persist({...this.data,local:next,pending:true,conflict});}
   import(state){const incoming=validateBackup(state),current=clone(this.data.local),m=mergeStates(null,incoming,current);this.storage.setItem(this.key+':before-import',JSON.stringify(this.data));this.persist({...this.data,local:m.merged,pending:true,conflict:m.conflicts.length?{state:current,revision:this.data.revision,...m}:null});}

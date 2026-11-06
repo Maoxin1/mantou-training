@@ -14,7 +14,7 @@
 | 命令 | 范围 | 前提 |
 | --- | --- | --- |
 | `npm test` | 构建与单元／模块回归 | 无需账号和数据库；默认 CI 使用此命令 |
-| `npm run test:browser` | 照片上传、双浏览器、离线与 ZIP 集成流程 | 默认使用内存存储，无需数据库；明确设置 `MEAL_TEST_DATABASE=1` 才使用 `DATABASE_URL`，必须指向已迁移的隔离测试库 |
+| `npm run test:browser` | 照片上传、双浏览器、损坏数据保全、完整ZIP恢复、暂停动作与离线集成流程 | 默认使用内存存储，无需数据库；明确设置 `MEAL_TEST_DATABASE=1` 才使用 `DATABASE_URL`，必须指向已迁移的隔离测试库 |
 | `npm run smoke:online` | 站点资源、未登录 API 拒绝、未登录本地照片和离线恢复 | 默认检查正式站，也可用 `TRAINING_BASE_URL` 指定预览；使用隔离浏览器资料 |
 | `npm run test:update` | 更新入口及本地文字、照片保留 | 同上；本地 `package.json` 的版本应与目标站点一致 |
 

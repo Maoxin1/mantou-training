@@ -3,7 +3,7 @@ import {spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
 const server=spawn(process.execPath,['scripts/serve.mjs'],{env:{...process.env,PORT:'4187'},stdio:['ignore','pipe','pipe']});
 await new Promise((resolve,reject)=>{server.stdout.once('data',resolve);server.once('error',reject);});
-const browser=await chromium.launch({channel:'msedge',headless:true});
+const browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||(process.platform==='win32'?'msedge':undefined),headless:true});
 try{
   const context=await browser.newContext(),page=await context.newPage();await page.goto('http://127.0.0.1:4187/');
   await page.evaluate(async()=>{const {fresh}=await import('/engine.mjs'),{startTrial,startSession}=await import('/journal.mjs');const s=fresh();startTrial(s,{start:'2026-10-27'});startSession(s,{date:'2026-10-27'});localStorage.setItem('mantou-training-v1',JSON.stringify(s));});await page.reload();

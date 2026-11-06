@@ -1,8 +1,7 @@
 import {MealStore} from './meal-store.mjs';
-import {MEALS,PHOTO_LIMIT,photoMeta,photoMarkdown,photoPath,validatePhoto} from './meal-core.mjs';
+import {MEALS,PHOTO_LIMIT,photoMeta,validatePhoto} from './meal-core.mjs';
 import {mealOwner,mealRequest} from './cloud.mjs';
-import {dateOK,today} from './journal.mjs';
-import {zipSync,unzipSync,strToU8,strFromU8} from './meal-zip.mjs';
+import {buildArchives,readArchive,ARCHIVE_LIMIT} from './archive-core.mjs';
 const stores=new Map(),jobs=new Map();let activeDate=null;
 export function mealStore(owner=mealOwner()){if(!stores.has(owner))stores.set(owner,new MealStore(owner));return stores.get(owner);}
 const changed=()=>window.dispatchEvent(new Event('training:photos'));
@@ -92,23 +91,27 @@ async function collectPhotos(from,to){
   return {photos:(await s.all()).filter(p=>(!from||p.date>=from)&&(!to||p.date<=to)),complete};
 }
 export async function mealArchive({from,to,markdown='',records=null}={}){
+  const parts=await mealArchives({from,to,markdown,records});if(!parts)return null;
+  if(parts.length>1)throw Error('照片需要分卷，请在设置中使用照片与记录备份入口');
+  return parts[0].data;
+}
+export async function mealArchives({from,to,markdown='',records=null}={}){
   const {photos,complete}=await collectPhotos(from,to);
   if(!complete&&!confirm('当前无法核对全部云端照片，导出仅包含本机已缓存照片。继续？'))return null;
-  const files={},manifest={version:1,complete,exported:new Date().toISOString(),photos:[]};
-  for(const p of photos){if(p.deleted)continue;const path=photoPath(p);files[path]=Uint8Array.from(atob(p.data),c=>c.charCodeAt(0));manifest.photos.push({...photoMeta(p),path});}
-  files['照片清单.json']=strToU8(JSON.stringify(manifest,null,2));
-  files['复盘.md']=strToU8(markdown+(!complete?'\n> 本次离线／同步失败：照片可能不完整，仅导出设备缓存。\n':'')+photoMarkdown(photos));
-  if(records)files['训练记录.json']=strToU8(JSON.stringify(records,null,2));
-  return zipSync(files,{level:0});
+  return buildArchives({photos,complete,markdown,records});
 }
-export async function restoreMealArchive(file){
-  if(file.size>100*1024*1024)throw Error('照片备份超过100MB，请分阶段恢复');
-  let total=0;const files=unzipSync(new Uint8Array(await file.arrayBuffer()),{filter:f=>{total+=f.originalSize;if(total>120*1024*1024)throw Error('备份解压大小超限');return f.name==='照片清单.json'||/^photos\/[a-zA-Z0-9-]+\.jpg$/.test(f.name);}});
-  if(!files['照片清单.json'])throw Error('没有找到训练卡照片清单');
-  const manifest=JSON.parse(strFromU8(files['照片清单.json']));if(manifest.version!==1||!Array.isArray(manifest.photos)||manifest.photos.length>1000)throw Error('照片备份格式无效');
-  const photos=manifest.photos.map(p=>{photoMeta(p);if(p.path!==photoPath(p)||!files[p.path]||files[p.path].length>PHOTO_LIMIT)throw Error('照片附件缺失或无效');let binary='';for(const b of files[p.path])binary+=String.fromCharCode(b);return validatePhoto({...p,data:btoa(binary)});});
-  const owner=mealOwner();if(!confirm(`恢复${photos.length}张照片到${owner==='guest'?'本机未登录空间':'当前登录账号'}？已有照片和删除记录不会被覆盖；此入口只恢复照片，文字记录请使用JSON恢复。`))return;
-  const s=mealStore(owner);for(const p of photos){if(mealOwner()!==owner)throw Error('账号已切换，已恢复的照片保留');if(!await s.get(p.id))await s.add(p);}await syncPhotos(activeDate,owner);changed();return photos.length;
+export async function restoreMealArchive(file,{restoreRecords}={}){
+  const owner=mealOwner();if(file.size>ARCHIVE_LIMIT)throw Error('备份超过100MB，请选择分卷文件');
+  const {manifest,photos,records}=readArchive(new Uint8Array(await file.arrayBuffer()));
+  if(mealOwner()!==owner)throw Error('账号已切换，请重新选择备份');
+  if(records&&!restoreRecords)throw Error('此备份含文字记录，请使用设置中的完整恢复入口');
+  if(!confirm(`恢复${photos.length}张照片${records?'和文字记录':''}到${owner==='guest'?'本机未登录空间':'当前登录账号'}？${manifest.parts>1?`这是第${manifest.part}/${manifest.parts}卷，全部恢复需依次选择每一卷。`:''}已有照片和删除记录保留；文字记录${owner==='guest'?'替换本机数据并保留恢复前副本':'合并到当前账号，有差异时等待选择'}。`))return;
+  if(mealOwner()!==owner)throw Error('账号已切换，请重新选择备份');
+  const added=await mealStore(owner).restore(photos);
+  if(mealOwner()!==owner)throw Error('账号已切换，照片保留在原账号，文字尚未恢复');
+  if(records){try{restoreRecords(records);}catch(e){throw Error('照片已恢复，文字尚未恢复：'+e.message+'。请处理后重新选择本卷，照片不会重复。');}}
+  // Network availability does not determine whether a local restore succeeded.
+  syncPhotos(activeDate,owner).catch(()=>{});changed();return added;
 }
 window.addEventListener('online',()=>syncPhotos(activeDate).catch(()=>{}));
 window.addEventListener('training:cloud-status',()=>{if(!document.querySelector('dialog[open]'))syncPhotos(null).catch(()=>{});});
