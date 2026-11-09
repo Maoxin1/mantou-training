@@ -1,0 +1,321 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { once } from 'node:events';
+import { readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { neonConfig } from '@neondatabase/serverless';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
+import { chromium } from 'playwright';
+
+// Run with a separately installed PGlite. All records and authentication stay on loopback.
+assert(process.env.TRAINING_PGLITE_ROOT, 'Set TRAINING_PGLITE_ROOT to the isolated PGlite install');
+const { PGlite } = createRequire(resolve(process.env.TRAINING_PGLITE_ROOT, 'package.json'))('@electric-sql/pglite');
+const root = fileURLToPath(new URL('../', import.meta.url));
+const production = 'a8eb5624328aa88b8179ae12e22a66e6999a77cc';
+const git = args => execFileSync('git', args, { cwd: root });
+function dependencyLock(bytes) {
+  const lock = JSON.parse(bytes);
+  delete lock.version;
+  delete lock.packages[''].version;
+  return lock;
+}
+assert.deepEqual(dependencyLock(git(['show', production + ':package-lock.json'])),
+  dependencyLock(await readFile(resolve(root, 'package-lock.json'))), 'old build must use the same dependency lock');
+const oldVersion = JSON.parse(git(['show', production + ':package.json'])).version;
+const newVersion = JSON.parse(await readFile(resolve(root, 'package.json'))).version;
+assert.notEqual(newVersion, oldVersion);
+const oldPaths = git(['ls-tree', '-r', '--name-only', production, '--', 'dist']).toString().trim().split(/\r?\n/u);
+const oldFiles = new Map(oldPaths.map(path => [path.slice(5), git(['show', production + ':' + path])]));
+const newPaths = git(['ls-files', '--', 'dist']).toString().trim().split(/\r?\n/u);
+const newFiles = new Map(await Promise.all(newPaths.map(async path => [path.slice(5), await readFile(resolve(root, path))])));
+for (const name of ['auth-sdk.mjs', 'meal-zip.mjs']) {
+  const bytes = await readFile(resolve(root, 'dist', name));
+  oldFiles.set(name, bytes);
+  newFiles.set(name, bytes);
+}
+const oldCache = 'mantou-training-shell-v20', newCache = 'mantou-training-shell-v23';
+assert(oldFiles.get('sw.js').includes(oldCache));
+assert(newFiles.get('sw.js').includes(newCache));
+
+const db = await PGlite.create('memory://');
+const { publicKey, privateKey } = await generateKeyPair('EdDSA');
+const jwk = { ...await exportJWK(publicKey), kid: 'release-rehearsal', alg: 'EdDSA' };
+const user = { id: crypto.randomUUID(), email: 'upgrade@example.invalid' };
+const other = { id: crypto.randomUUID(), email: 'other@example.invalid' };
+const sessionCookie = 'rehearsal=' + crypto.randomUUID();
+const mime = { '.mjs': 'text/javascript', '.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css',
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
+const rawParsers = Object.fromEntries([16, 20, 25, 3802].map(oid => [oid, value => value]));
+let origin, token, handlers, assets = oldFiles, pauseSync = false, signIns = 0, sqlCalls = 0;
+const serverErrors = [];
+const server = createServer(async (req, res) => {
+  const u = new URL(req.url, 'http://127.0.0.1');
+  const path = u.pathname;
+  const json = (status, value) => {
+    res.statusCode = status;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify(value));
+  };
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    if (path === '/cloud-config.mjs') {
+      res.setHeader('Content-Type', 'text/javascript');
+      return res.end('export const AUTH_URL=' + JSON.stringify(origin + '/neondb/auth') + ';');
+    }
+    if (path.startsWith('/neondb/auth/') || path.startsWith('/api/') || path === '/__sql') {
+      let raw = '';
+      for await (const chunk of req) raw += chunk;
+      req.body = raw ? JSON.parse(raw) : undefined;
+    }
+    if (path.startsWith('/neondb/auth/')) {
+      const authorized = (req.headers.cookie || '').split('; ').includes(sessionCookie);
+      if (path.endsWith('/.well-known/jwks.json')) return json(200, { keys: [jwk] });
+      if (path.endsWith('/email-otp/send-verification-otp') && req.body?.email === user.email) return json(200, { success: true });
+      if (path.endsWith('/sign-in/email-otp') && req.body?.email === user.email && req.body?.otp === '123456') {
+        signIns++;
+        res.setHeader('Set-Cookie', sessionCookie + '; Path=/neondb/auth; HttpOnly; SameSite=Lax');
+        return json(200, { user, token: 'rehearsal-session' });
+      }
+      if (path.endsWith('/get-session')) return json(200, authorized ? { user, session: { id: 'rehearsal-session' } } : null);
+      if (path.endsWith('/token') && authorized) return json(200, { token });
+      return json(401, { error: 'Isolated fixture: invalid session' });
+    }
+    if (path === '/__sql') {
+      sqlCalls++;
+      const { query, params } = req.body;
+      const result = await db.query(query, params, { rowMode: 'array', parsers: rawParsers });
+      return json(200, { ...result, rowCount: result.affectedRows || result.rows.length });
+    }
+    if (handlers[path]) {
+      if (pauseSync) return json(503, { error: 'Isolated fixture: sync unavailable' });
+      req.query = Object.fromEntries(u.searchParams);
+      const reply = {
+        setHeader: (...args) => res.setHeader(...args),
+        status(code) { res.statusCode = code; return this; },
+        json(value) { return json(res.statusCode, value); }
+      };
+      return await handlers[path](req, reply);
+    }
+    const name = path === '/' ? 'index.html' : path.slice(1);
+    if (!assets.has(name)) return json(404, { error: 'Missing rehearsal asset' });
+    res.setHeader('Content-Type', mime[name.slice(name.lastIndexOf('.'))] || 'application/octet-stream');
+    res.end(assets.get(name));
+  } catch (error) {
+    serverErrors.push(error.message);
+    if (!res.headersSent) json(500, { error: 'Rehearsal server failed' });
+    else res.end();
+  }
+});
+let browser;
+try {
+  for (const file of ['001-training-sync.sql', '002-meal-photos.sql']) {
+    await db.exec(await readFile(resolve(root, 'migrations', file), 'utf8'));
+  }
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  origin = 'http://127.0.0.1:' + server.address().port;
+  process.env.AUTH_URL = origin + '/neondb/auth';
+  process.env.DATABASE_URL = 'postgresql://rehearsal:synthetic@db.example.invalid/rehearsal';
+  neonConfig.fetchEndpoint = () => origin + '/__sql';
+  const sign = person => new SignJWT({ role: 'authenticated', email: person.email })
+    .setProtectedHeader({ alg: 'EdDSA', kid: jwk.kid }).setSubject(person.id)
+    .setIssuer(origin).setAudience(origin).setIssuedAt().setExpirationTime('30m').sign(privateKey);
+  token = await sign(user);
+  handlers = { '/api/sync': (await import('../api/sync.mjs')).default, '/api/meals': (await import('../api/meals.mjs')).default };
+  const wrong = await fetch(origin + '/api/sync', { headers: { Authorization: 'Bearer ' + token, 'X-Account-Id': other.id } });
+  assert.equal(wrong.status, 401);
+  assert.equal(sqlCalls, 0);
+
+  browser = await chromium.launch({ channel: process.env.BROWSER_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined), headless: true });
+  const pageErrors = [], cacheKey = 'mantou-training-account:' + user.id;
+  async function device(viewport) {
+    const context = await browser.newContext({ viewport, timezoneId: 'Asia/Shanghai' });
+    const page = await context.newPage();
+    page.setDefaultTimeout(12000);
+    page.on('pageerror', e => pageErrors.push(e.message));
+    await page.goto(origin);
+    await waitCache(page, oldCache);
+    assert((await page.locator('footer').innerText()).endsWith('v' + oldVersion));
+    return page;
+  }
+  const waitCache = (page, key) => page.waitForFunction(async key =>
+    !!navigator.serviceWorker.controller && (await caches.keys()).includes(key), key, { timeout: 25000 });
+  const envelope = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), cacheKey);
+  const settled = page => page.waitForFunction(key => {
+    const state = JSON.parse(localStorage.getItem(key) || 'null');
+    return state?.revision > 0 && !state.pending && !state.conflict;
+  }, cacheKey);
+  const close = async page => {
+    await page.locator('#closeDialog').click();
+    await page.locator('#exerciseDialog').waitFor({ state: 'hidden' });
+  };
+  const selectPlan = page => page.locator('[data-page="plan"]').click();
+  const syncNow = async page => {
+    await page.locator('#accountShortcut').click();
+    await page.getByRole('button', { name: '立即同步', exact: true }).click();
+    await settled(page);
+    await selectPlan(page);
+  };
+  async function login(page) {
+    await page.locator('#accountShortcut').click();
+    await page.getByRole('textbox', { name: '邮箱', exact: true }).fill(user.email);
+    await page.getByRole('button', { name: '发送邮箱验证码', exact: true }).click();
+    await page.getByRole('textbox', { name: '邮箱验证码', exact: true }).fill('123456');
+    await page.getByRole('button', { name: '登录并同步', exact: true }).click();
+    await settled(page);
+    await selectPlan(page);
+  }
+  const photos = page => page.evaluate(async () => {
+    const { mealStore } = await import('/meal-photos.mjs');
+    return (await mealStore().all()).filter(photo => !photo.deleted);
+  });
+  const oldLocal = state => Object.values(state.journal.entries).find(e => e.kind === 'session');
+  const active = state => state.journal.trials[state.journal.settings.activeTrial];
+  const lowerTargets = state => Object.values(state.journal.entries)
+    .filter(e => e.kind === 'session').map(e => e.fields.plan[0].min).sort((a, b) => a - b);
+  async function openMeal(page, meal) {
+    await page.locator('#todayFeedback').click();
+    await page.locator('[data-meal="' + meal + '"]').click();
+  }
+  async function savePhoto(page, meal, bytes, pending) {
+    await page.locator('#mealFile').setInputFiles({ name: meal + '.jpg', mimeType: 'image/jpeg', buffer: bytes });
+    await page.waitForFunction(async ({ meal, pending }) => {
+      const { mealStore } = await import('/meal-photos.mjs');
+      return (await mealStore().all()).some(photo => photo.meal === meal && !photo.deleted && photo.pending === pending);
+    }, { meal, pending });
+  }
+  async function upgrade(page) {
+    await page.goto(origin + '/update.html');
+    await page.locator('#update').click();
+    await page.waitForURL(url => url.searchParams.get('updated') === newVersion, { timeout: 60000 });
+    await waitCache(page, newCache);
+    assert((await page.locator('footer').innerText()).endsWith('v' + newVersion));
+    assert(!(await page.evaluate(() => caches.keys())).includes(oldCache));
+  }
+
+  const phone = await device({ width: 390, height: 844 });
+  await login(phone);
+  await phone.locator('#startTrial').click();
+  await phone.locator('#startTrialForm button[type="submit"]').click();
+  await phone.locator('#beginSession').click();
+  await phone.locator('[data-field="notes"]').fill('生产旧版训练样例');
+  await close(phone);
+  const first = oldLocal((await envelope(phone)).local);
+  assert.equal(first.fields.notes, '生产旧版训练样例');
+  assert.equal(first.fields.plan[0].min, 6);
+  const image = Buffer.from(await phone.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#537753';
+    ctx.fillRect(0, 0, 640, 480);
+    return canvas.toDataURL('image/jpeg').split(',')[1];
+  }), 'base64');
+  await openMeal(phone, 'lunch');
+  await savePhoto(phone, 'lunch', image, false);
+  await close(phone);
+  await syncNow(phone);
+
+  const tablet = await device({ width: 820, height: 1180 });
+  await login(tablet);
+  await tablet.locator('#beginSession').waitFor();
+  assert.equal(oldLocal((await envelope(tablet)).local).fields.notes, first.fields.notes);
+  await tablet.context().setOffline(true);
+  await tablet.locator('#beginSession').click();
+  await tablet.locator('#recoveryFields summary').click();
+  await tablet.locator('[data-field="recoveryNotes"]').fill('旧版平板离线补记');
+  await close(tablet);
+  assert.equal((await envelope(tablet)).pending, true);
+
+  await phone.context().setOffline(true);
+  await openMeal(phone, 'dinner');
+  await phone.locator('[data-field="notes"]').fill('更新前未同步的每日记录');
+  await savePhoto(phone, 'dinner', image, true);
+  await close(phone);
+  const before = await envelope(phone), beforePhotos = await photos(phone);
+  assert.equal(before.pending, true);
+  assert.deepEqual(beforePhotos.map(p => [p.meal, p.pending]).sort(), [['dinner', true], ['lunch', false]]);
+  assert.equal(signIns, 2);
+  console.log('PASS old v20 writes training and meal photos via signed test account and isolated PostgreSQL');
+
+  pauseSync = true;
+  assets = newFiles;
+  await phone.context().setOffline(false);
+  await upgrade(phone);
+  assert.deepEqual(await envelope(phone), before);
+  assert.deepEqual(await photos(phone), beforePhotos);
+  assert.equal(await phone.evaluate(() => JSON.parse(localStorage.getItem('mantou-training-account')).email), user.email);
+  await phone.locator('#adjustTrial').click();
+  await phone.locator('#adjustTrialForm summary').first().click();
+  await phone.locator('[data-field="0-min"]').fill('7');
+  await phone.locator('[data-field="reason"]').fill('升级演练');
+  await phone.getByRole('button', { name: '预览改动', exact: true }).click();
+  assert.deepEqual(await envelope(phone), before);
+  await phone.locator('#confirmAdjust').click();
+  await phone.locator('#newSession').click();
+  await close(phone);
+  assert.deepEqual(lowerTargets((await envelope(phone)).local), [6, 7]);
+  console.log('PASS v20 → v23 same-origin update preserves account, text, photos and pending writes');
+
+  pauseSync = false;
+  await syncNow(phone);
+  await openMeal(phone, 'dinner');
+  await phone.locator('#retryPhotos').click();
+  await phone.getByText('照片已同步；其他设备打开同一天即可查看', { exact: true }).waitFor();
+  await close(phone);
+  assert((await photos(phone)).every(photo => !photo.pending));
+
+  await tablet.context().setOffline(false);
+  await syncNow(tablet);
+  assert((await tablet.evaluate(() => caches.keys())).includes(oldCache), 'tablet still runs v20');
+  const mixed = (await envelope(tablet)).local;
+  assert.deepEqual(lowerTargets(mixed), [6, 7]);
+  assert.equal(active(mixed).plan[0].min, 7);
+  assert.equal(active(mixed).changes.length, 1);
+  assert.equal(mixed.journal.entries[first.id].fields.recoveryNotes, '旧版平板离线补记');
+  assert(Object.values(mixed.journal.entries).some(e => e.fields.notes === '更新前未同步的每日记录'));
+  await openMeal(tablet, 'dinner');
+  await tablet.locator('#mealGallery img').waitFor();
+  await close(tablet);
+  await syncNow(phone);
+  await phone.waitForFunction(({ key, id }) =>
+    JSON.parse(localStorage.getItem(key)).local.journal.entries[id]?.fields.recoveryNotes === '旧版平板离线补记',
+    { key: cacheKey, id: first.id });
+  assert.deepEqual((await envelope(phone)).local, (await envelope(tablet)).local);
+  assert.deepEqual((await photos(tablet)).find(p => p.meal === 'dinner').data, beforePhotos.find(p => p.meal === 'dinner').data);
+  const stored = await db.query('SELECT user_id,state FROM training_sync');
+  assert.equal(stored.rows.length, 1);
+  assert.equal(stored.rows[0].user_id, user.id);
+  assert.deepEqual(stored.rows[0].state, (await envelope(phone)).local);
+  assert.equal((await db.query('SELECT object_key FROM training_meal_photos')).rows.length, 2);
+  console.log('PASS v20 and v23 converge after offline reconnect; one plan change, both sessions and both photos persist');
+
+  const otherResponse = await fetch(origin + '/api/sync', {
+    headers: { Authorization: 'Bearer ' + await sign(other), 'X-Account-Id': other.id }
+  });
+  assert.equal(otherResponse.status, 200);
+  assert.deepEqual(await otherResponse.json(), { state: null, revision: 0 });
+
+  await upgrade(tablet);
+  assert.deepEqual(lowerTargets((await envelope(tablet)).local), [6, 7]);
+  await tablet.context().setOffline(true);
+  await tablet.reload();
+  await tablet.locator('#beginSession').waitFor();
+  await openMeal(tablet, 'dinner');
+  await tablet.locator('#mealGallery img').waitFor();
+  assert.deepEqual(lowerTargets((await envelope(tablet)).local), [6, 7]);
+  assert.deepEqual(serverErrors, []);
+  assert.deepEqual(pageErrors, []);
+  console.log('PASS signed account isolation, second-device upgrade and offline reopen');
+} finally {
+  await browser?.close();
+  if (server.listening) {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+  await db.close();
+}
