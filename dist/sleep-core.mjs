@@ -41,4 +41,53 @@ export function validateSleepSegments(r){
   if(!r.segments)return true;
   try{const expected=mergeSleepSegments(r.segments);return ['sourceId','date','start','end','offsetMinutes','intervalMinutes','actualMinutes','gapMinutes'].every(k=>expected[k]===r[k]);}catch{return false;}
 }
+
+export function sameSleep(a,b){
+  if(!a||!b)return a===b;
+  const fields=['source','sourceId','date','start','end','offsetMinutes','intervalMinutes','actualMinutes','gapMinutes'];
+  const left=a.segments||[],right=b.segments||[];
+  return fields.every(k=>a[k]===b[k])&&(a.groupId||'')===(b.groupId||'')&&
+    left.length===right.length&&left.every((part,i)=>sameSleep(part,right[i]));
+}
+
+// Group by Samsung's explicit night identifier, never by proximity alone.
+export function planSleepImport(records,entries,{from,to}){
+  const groups=new Map(),byDate=new Map(),savedDates=new Map();
+  for(const e of Object.values(entries)){
+    if(e.deleted||!e.fields.samsungSleep)continue;
+    const sleep=e.fields.samsungSleep;
+    for(const part of sleep.segments||[sleep]){
+      if(!savedDates.has(part.sourceId))savedDates.set(part.sourceId,new Set());
+      savedDates.get(part.sourceId).add(sleep.date);
+    }
+  }
+  for(const part of records){
+    const key=part.groupId?'group:'+part.groupId:'part:'+part.sourceId;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push(part);
+  }
+  for(const parts of groups.values()){
+    const date=parts.reduce((last,part)=>part.date>last?part.date:last,'');
+    if(date<from||date>to)continue;
+    if(!byDate.has(date))byDate.set(date,[]);
+    byDate.get(date).push(parts);
+  }
+  return [...byDate].sort(([a],[b])=>b.localeCompare(a)).map(([date,candidates])=>{
+    const e=entries['daily:'+date],previous=e?.fields.samsungSleep,parts=candidates[0];
+    const review=reason=>({date,status:'review',reason});
+    if(e?.deleted)return review('这天的每日记录已删除');
+    if(candidates.length!==1)return review('同日有多条独立记录，请核对主睡眠');
+    if(parts.some(p=>[...(savedDates.get(p.sourceId)||[])].some(d=>d!==date)))return review('有片段已归入其他日期');
+    let sleep;
+    try{sleep=mergeSleepSegments(parts);}catch(error){return review(error.message);}
+    if(!validateSleepSegments(sleep)||sleep.date!==date)return review('片段的日期或时区待核对');
+    if(!previous)return {date,status:'new',sleep};
+    if(sameSleep(previous,sleep))return {date,status:'same',sleep};
+    const ids=new Set(parts.map(p=>p.sourceId));
+    if(!(previous.segments||[previous]).every(p=>ids.has(p.sourceId)))return review('新文件未包含全部已保存片段');
+    if(previous.actualMinutes!==null&&sleep.actualMinutes===null)return review('新文件的睡眠阶段不完整');
+    return {date,status:'update',sleep,previous};
+  });
+}
+
 export function sleepLine(r){if(!validateSleepSegments(r))return '睡眠数据待核对';const time=s=>new Date(Date.parse(s)+r.offsetMinutes*60000).toISOString().slice(11,16);const duration=n=>n===null?'缺少完整阶段数据':`${Math.floor(n/60)}小时${Math.floor(n%60)}分`;return `${time(r.start)}—${time(r.end)} · 区间${duration(r.intervalMinutes)} · ${r.segments?'所选片段内':''}设备估计实际睡眠${duration(r.actualMinutes)}${r.segments?` · 已合并${r.segments.length}段；未记录间隔${r.gapMinutes}分钟`:''}（三星健康）`;}
