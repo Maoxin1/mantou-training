@@ -1,7 +1,7 @@
 import {planCard} from './journal-cards.mjs';
 import {sleepSection,bindSleepImport} from './sleep-ui.mjs';
 import {mealPhotoSection,bindMealPhotos,mealArchive,mealArchives,restoreMealArchive} from './meal-photos.mjs';
-import {DEFAULT_PLAN,LABELS,label,today,plusDays,dateOK,copy,activeTrial,startTrial,startSession,entry,writeEntry,exerciseEntryId,blankRows,sessions,sessionExercises,hasActual,removeEntry,changePlan,trialSummary,trialMarkdown} from './journal.mjs';
+import {DEFAULT_PLAN,LABELS,label,today,plusDays,dateOK,copy,activeTrial,startTrial,startSession,entry,writeEntry,exerciseEntryId,blankRows,sessions,sessionExercises,hasActual,removeEntry,changePlan,validatePlan,trialSummary,trialMarkdown} from './journal.mjs';
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $=id=>document.getElementById(id);
 function input(key,title,value,type='text',extra=''){return `<label class="journal-field"><span>${title}</span><input class="text-input" data-field="${key}" type="${type}" value="${esc(value??'')}" ${type==='number'?'min="0" max="100000" step="any"':''} ${type==='text'?'maxlength="200"':''} ${extra}></label>`;}
@@ -17,7 +17,7 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     $('dialogContent').innerHTML=`<p class="hint" id="journalSave" role="status">填写后自动保存；可以分次补充，空白保留为未填写。</p>${html}`;
     if(!$('exerciseDialog').open)$('exerciseDialog').showModal();$('exerciseDialog').scrollTop=0;
   }
-  function save(fn){try{const result=transact(fn);if($('journalSave'))$('journalSave').textContent='已保存本机；登录后联网自动同步';return result;}catch(e){if($('journalSave')){$('journalSave').textContent='保存失败：'+e.message+'。当前输入请先保留。';$('journalSave').className='error';}notify(e.message);return false;}}
+  function save(fn,options){try{const result=transact(fn,options);if($('journalSave'))$('journalSave').textContent='已保存本机；登录后联网自动同步';return result;}catch(e){if($('journalSave')){$('journalSave').textContent='保存失败：'+e.message+'。当前输入请先保留。';$('journalSave').className='error';}notify(e.message);return false;}}
   function bindFields(id,kind,initial={}){
     $('dialogContent').querySelectorAll('[data-field]').forEach(el=>{
       el.addEventListener('input',()=>{
@@ -90,8 +90,98 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
   }
   function openAdjust(){
     const t=trial();if(!t)return;
-    modal('调整后续训练安排',`<form id="adjustTrialForm"><p class="hint">仅影响以后新建的场次，已开始场次和旧记录保留当时目标。每次只调整需要改变的因素，不因两周结束自动加量。</p>${t.plan.map((p,i)=>`<details><summary>${esc(p.name)}</summary><label class="journal-field"><span><input type="checkbox" data-paused="${i}" ${p.paused?'checked':''}> 暂停这个动作</span></label>${input(i+'-pauseReason','暂停说明（可选）',p.pauseReason)}<div class="journal-columns">${input(i+'-sets','组数',p.sets,'number','min="1" max="6" step="1"')}${input(i+'-min','次数下限',p.min,'number','min="1" max="100" step="1"')}${input(i+'-max','次数上限',p.max,'number','min="1" max="100" step="1"')}</div>${input(i+'-variant','动作版本',p.variant)}${input(i+'-load','阻力／握距',p.load)}</details>`).join('')}${area('reason','本次调整原因（必填）','')}<button class="btn" type="submit">确认调整后续安排</button></form>`,'本人确认 · 历史保留');
-    $('adjustTrialForm').onsubmit=ev=>{ev.preventDefault();guard(()=>{const form=$('adjustTrialForm'),value=k=>form.querySelector(`[data-field="${k}"]`).value,plan=t.plan.map((p,i)=>({...p,paused:form.querySelector(`[data-paused="${i}"]`).checked,pauseReason:value(i+'-pauseReason'),sets:Number(value(i+'-sets')),min:Number(value(i+'-min')),max:Number(value(i+'-max')),variant:value(i+'-variant'),load:value(i+'-load')}));transact(s=>changePlan(s,plan,value('reason')));$('exerciseDialog').close();renderPlan();notify('后续安排已调整，既有场次保持原快照');});};
+    modal('调整后续训练安排',`<form id="adjustTrialForm">
+      <p class="hint">仅影响以后新建的场次，已开始场次和旧记录保留当时目标。</p>
+      ${t.plan.map((p,i)=>`<details>
+        <summary>${esc(p.name)}</summary>
+        <label class="journal-field"><span><input type="checkbox" data-paused="${i}" ${p.paused?'checked':''}> 暂停这个动作</span></label>
+        ${input(i+'-pauseReason','暂停说明（可选）',p.pauseReason)}
+        <div class="journal-columns">
+          ${input(i+'-sets','组数',p.sets,'number','min="1" max="6" step="1"')}
+          ${input(i+'-min','次数下限',p.min,'number','min="1" max="100" step="1"')}
+          ${input(i+'-max','次数上限',p.max,'number','min="1" max="100" step="1"')}
+        </div>
+        ${input(i+'-variant','动作版本',p.variant)}
+        ${input(i+'-load','阻力／握距',p.load)}
+      </details>`).join('')}
+      ${area('reason','本次调整原因（必填）','')}
+      <button class="btn" type="submit">预览改动</button>
+    </form><section id="adjustPreview" hidden></section>`,'预览后确认 · 历史保留');
+    const dialog=$('exerciseDialog'),form=$('adjustTrialForm'),preview=$('adjustPreview'),status=$('journalSave');
+    const value=k=>form.querySelector(`[data-field="${k}"]`).value;
+    // Single-line inputs can strip line breaks from older plan text.
+    const initialText=t.plan.map((_,i)=>({
+      pauseReason:value(i+'-pauseReason'),variant:value(i+'-variant'),load:value(i+'-load')
+    }));
+    const editedText=(i,key,original)=>{
+      const entered=value(i+'-'+key);
+      return entered===initialText[i][key]?original:entered;
+    };
+    const checkContext=()=>{
+      if(trial()!==t)throw Error('当前训练数据已更新，请关闭后重新预览。');
+    };
+    const display=v=>typeof v==='boolean'?(v?'暂停':'继续训练'):esc(v===''?'未填写':v);
+    status.textContent='先预览改动，再确认保存。';
+    form.onsubmit=ev=>{
+      ev.preventDefault();
+      if(!dialog.open||!form.isConnected||form.hidden)return;
+      guard(()=>{
+        checkContext();
+        const reason=value('reason').trim();
+        if(!reason)throw Error('请填写调整原因');
+        const changes=[];
+        const plan=t.plan.map((p,i)=>{
+          const next={...p},rows=[];
+          const fields=[
+            ['paused','动作状态',p.paused??false,form.querySelector(`[data-paused="${i}"]`).checked],
+            ['pauseReason','暂停说明',p.pauseReason??'',editedText(i,'pauseReason',p.pauseReason??'')],
+            ['sets','组数',p.sets,Number(value(i+'-sets'))],
+            ['min','次数下限',p.min,Number(value(i+'-min'))],
+            ['max','次数上限',p.max,Number(value(i+'-max'))],
+            ['variant','动作版本',p.variant,editedText(i,'variant',p.variant)],
+            ['load','阻力／握距',p.load,editedText(i,'load',p.load)]
+          ];
+          for(const [key,label,before,after] of fields){
+            if(before===after)continue;
+            next[key]=after;
+            rows.push(`<li>${label}：${display(before)} → ${display(after)}</li>`);
+          }
+          if(rows.length)changes.push(`<div class="log"><strong>${esc(p.name)}</strong><ul>${rows.join('')}</ul></div>`);
+          return next;
+        });
+        validatePlan(plan);
+        if(!changes.length)throw Error('没有需要保存的改动');
+        preview.innerHTML=`<h3 id="adjustPreviewTitle" tabindex="-1">核对后续改动</h3>
+          ${changes.join('')}
+          <p class="log">调整原因：${esc(reason)}</p>
+          <button class="btn" id="confirmAdjust" type="button">确认并保存改动</button>
+          <button class="btn secondary" id="editAdjust" type="button">返回修改</button>`;
+        form.hidden=true;
+        preview.hidden=false;
+        status.textContent='正在预览，改动尚未保存。';
+        status.className='hint';
+        $('adjustPreviewTitle').focus();
+        $('editAdjust').onclick=()=>{
+          preview.hidden=true;
+          form.hidden=false;
+          status.textContent='先预览改动，再确认保存。';
+          status.className='hint';
+          form.querySelector('button[type=submit]').focus();
+        };
+        const confirm=$('confirmAdjust');
+        confirm.onclick=()=>{
+          if(!dialog.open||preview.hidden||!confirm.isConnected||confirm.disabled)return;
+          confirm.disabled=true;
+          if(save(s=>{checkContext();changePlan(s,plan,reason);},{requireCurrentAccountCache:true})===false){
+            confirm.disabled=false;
+            return;
+          }
+          dialog.close();
+          renderPlan();
+          notify('后续安排已调整，既有场次保持原快照');
+        };
+      });
+    };
   }
   function photoBackupSection(){return `<section class="card"><h3>餐次照片备份</h3><p class="muted">ZIP包含照片、照片清单和文字记录JSON。离线只能导出本机已缓存的照片。解压后可把复盘Markdown和photos文件夹一起放入Obsidian。</p><button class="btn secondary" id="exportMealBackup">导出照片与记录 ZIP</button><div id="backupParts"></div><label class="btn secondary file-label">从ZIP恢复照片与记录<input type="file" id="restoreMealBackup" accept=".zip,application/zip"></label><p class="hint">ZIP中的照片与文字一起恢复；旧版纯照片ZIP也兼容。大备份分卷导出，请保存并依次恢复所有卷。清除浏览器数据前先备份待同步照片。</p></section>`;}
   function bindPhotoBackup(){

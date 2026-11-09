@@ -14,3 +14,4 @@
 .meal-gallery figure{margin:0}.meal-gallery img{width:100%;aspect-ratio:4/3;object-fit:contain;background:#f4f4f6;border-radius:12px}
 .meal-gallery figcaption{font-size:13px;color:#666;padding:6px 0}
 .meal-section .file-label{flex:1;min-width:100px;text-align:center}
+#adjustPreview{overflow-wrap:anywhere}
