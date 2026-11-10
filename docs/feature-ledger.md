@@ -7,7 +7,7 @@
 | TRAIN-01 | 2.3.7 已发布：手动调整先预览，确认后仅影响新场次。沿用 T01-D01、T01-D08 | [PR #7](https://github.com/Maoxin1/mantou-training/pull/7)。自动评分、自动建议的门槛与可比性仍未定；跨设备同时确认和服务端提交后丢回包的完整验收仍另行跟踪 |
 | TRAIN-02 | 长期体态／器械与低负担复盘；本轮仅采纳 TRAIN-04 的明确部分 | 不把新指标、照片估算热量或体态预测顺带纳入本轮 |
 | TRAIN-03 | 2.3.8 已发布：手动三星睡眠 ZIP 批量预览、查重、显式修订 | [PR #6](https://github.com/Maoxin1/mantou-training/pull/6)。自动手表连接暂停，手动导入持续使用 |
-| TRAIN-04 | 2.4.0 已发布，工程与线上访客验收通过，真实账号实机待验收 | [PR #8](https://github.com/Maoxin1/mantou-training/pull/8) · [规范与范围](specs/train-04-strength.md) · [测试矩阵与对抗审查](specs/train-04-tests.md) |
+| TRAIN-04 | 2.4.0 已发布，工程、双端升级／同步和手机离线实机通过；首次实机建场待使用反馈 | [PR #8](https://github.com/Maoxin1/mantou-training/pull/8) · [规范与范围](specs/train-04-strength.md) · [测试矩阵与对抗审查](specs/train-04-tests.md) |
 
 ## TRAIN-04 已采纳决策
 
