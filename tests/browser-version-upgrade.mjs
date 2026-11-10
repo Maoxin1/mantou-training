@@ -15,7 +15,7 @@ import { strToU8, zipSync } from 'fflate';
 assert(process.env.TRAINING_PGLITE_ROOT, 'Set TRAINING_PGLITE_ROOT to the isolated PGlite install');
 const { PGlite } = createRequire(resolve(process.env.TRAINING_PGLITE_ROOT, 'package.json'))('@electric-sql/pglite');
 const root = fileURLToPath(new URL('../', import.meta.url));
-const production = '97413ee683a29a172faec2b62641562f1ff463e9';
+const production = process.env.TRAINING_UPGRADE_BASE || '2879a6c590e20033874cfe1dc159e6e680f6cd4c';
 const git = args => execFileSync('git', args, { cwd: root });
 function dependencyLock(bytes) {
   const lock = JSON.parse(bytes);
@@ -30,14 +30,16 @@ const newVersion = JSON.parse(await readFile(resolve(root, 'package.json'))).ver
 assert.notEqual(newVersion, oldVersion);
 const oldPaths = git(['ls-tree', '-r', '--name-only', production, '--', 'dist']).toString().trim().split(/\r?\n/u);
 const oldFiles = new Map(oldPaths.map(path => [path.slice(5), git(['show', production + ':' + path])]));
-const newPaths = git(['ls-files', '--', 'dist']).toString().trim().split(/\r?\n/u);
+const newPaths = [...new Set((git(['ls-files', '--', 'dist']).toString() + git(['ls-files', '--others', '--exclude-standard', '--', 'dist']).toString()).trim().split(/\r?\n/u))];
 const newFiles = new Map(await Promise.all(newPaths.map(async path => [path.slice(5), await readFile(resolve(root, path))])));
 for (const name of ['auth-sdk.mjs', 'meal-zip.mjs']) {
   const bytes = await readFile(resolve(root, 'dist', name));
   oldFiles.set(name, bytes);
   newFiles.set(name, bytes);
 }
-const oldCache = 'mantou-training-shell-v23', newCache = 'mantou-training-shell-v24';
+const cacheName = files => files.get('sw.js').toString().match(/mantou-training-shell-v\d+/u)[0];
+const oldCache = cacheName(oldFiles), newCache = cacheName(newFiles);
+assert.notEqual(newCache, oldCache);
 assert(oldFiles.get('sw.js').includes(oldCache));
 assert(newFiles.get('sw.js').includes(newCache));
 
@@ -195,7 +197,7 @@ try {
     await page.locator('#sleepFile').setInputFiles(zip);
   }
   const lowerTargets = state => Object.values(state.journal.entries)
-    .filter(e => e.kind === 'session').map(e => e.fields.plan[0].min).sort((a, b) => a - b);
+    .filter(e => e.kind === 'session' && !e.fields.workout).map(e => e.fields.plan[0].min).sort((a, b) => a - b);
   async function openMeal(page, meal) {
     await page.locator('#todayFeedback').click();
     await page.locator('[data-meal="' + meal + '"]').click();
@@ -239,12 +241,17 @@ try {
   await savePhoto(phone, 'lunch', image, false);
   await close(phone);
   await openSleepZip(phone);
-  await phone.locator('#sleepSelect').selectOption(firstNight);
-  await phone.locator('#saveSleep').click();
+  if (oldVersion === '2.3.7') {
+    await phone.locator('#sleepSelect').selectOption(firstNight);
+    await phone.locator('#saveSleep').click();
+  } else {
+    await phone.locator('#sleepFrom').fill(firstNight);
+    await phone.locator('#sleepTo').fill(firstNight);
+    await phone.locator('#saveBatchSleep').click();
+  }
   await close(phone);
   const oldNight = sleepRecord((await envelope(phone)).local, firstNight);
   assert.equal(oldNight.actualMinutes, 60);
-  assert.equal(oldNight.sourceUpdatedAt, undefined);
   await syncNow(phone);
 
   const tablet = await device({ width: 820, height: 1180 });
@@ -267,7 +274,7 @@ try {
   assert.equal(before.pending, true);
   assert.deepEqual(beforePhotos.map(p => [p.meal, p.pending]).sort(), [['dinner', true], ['lunch', false]]);
   assert.equal(signIns, 2);
-  console.log('PASS 2.3.7 writes training, meal photos and a sleep night via an isolated signed account');
+  console.log(`PASS ${oldVersion} writes training, meal photos and a sleep night via an isolated signed account`);
 
   pauseSync = true;
   assets = newFiles;
@@ -296,7 +303,7 @@ try {
   await close(phone);
   assert.deepEqual(sleepRecord((await envelope(phone)).local, firstNight), oldNight);
   assert.equal(sleepRecord((await envelope(phone)).local, secondNight).actualMinutes, 60);
-  console.log('PASS 2.3.7 → 2.3.8 preserves the account, pending writes and old sleep; only the new night is added');
+  console.log(`PASS ${oldVersion} → ${newVersion} preserves the account, pending writes and old sleep; only the new night is added`);
 
   pauseSync = false;
   await syncNow(phone);
@@ -308,7 +315,7 @@ try {
 
   await tablet.context().setOffline(false);
   await syncNow(tablet);
-  assert((await tablet.evaluate(() => caches.keys())).includes(oldCache), 'tablet still runs 2.3.7');
+  assert((await tablet.evaluate(() => caches.keys())).includes(oldCache), 'tablet still runs the old version');
   const mixed = (await envelope(tablet)).local;
   assert.deepEqual(lowerTargets(mixed), [6, 7]);
   assert.equal(active(mixed).plan[0].min, 7);
@@ -333,6 +340,28 @@ try {
   assert.equal((await db.query('SELECT object_key FROM training_meal_photos')).rows.length, 2);
   console.log('PASS mixed versions converge after reconnect; two sessions, two photos and both sleep nights persist');
 
+  // New schema: the old client must stop before PUT, retain its pending edit, then merge after update.
+  await tablet.context().setOffline(true);
+  await tablet.locator('#beginSession').click();
+  await tablet.locator('[data-field="notes"]').fill('旧版等待更新时补记');
+  await close(tablet);
+  const pendingOld = await envelope(tablet);
+  assert.equal(pendingOld.pending, true);
+  await phone.locator('#startStrength').click();
+  await phone.locator('#confirmStrength').click();
+  await phone.locator('#beginSession').click();await close(phone);
+  await syncNow(phone);
+  const phase = active((await envelope(phone)).local);
+  assert.equal(phase.routine, 'strength3-v1');
+  const afterActivation = (await db.query('SELECT state,revision FROM training_sync')).rows[0];
+  await tablet.context().setOffline(false);
+  await tablet.locator('#accountShortcut').click();
+  await tablet.getByRole('button', { name: '立即同步', exact: true }).click();
+  await tablet.locator('#systemAlert').filter({ hasText: '同步失败' }).waitFor();
+  assert.deepEqual(await envelope(tablet), pendingOld, 'unsupported remote data must not replace pending local data');
+  assert.deepEqual((await db.query('SELECT state,revision FROM training_sync')).rows[0], afterActivation);
+  console.log('PASS T04-M09: old client rejects journal v2 without dropping pending data or writing over the server');
+
   const otherResponse = await fetch(origin + '/api/sync', {
     headers: { Authorization: 'Bearer ' + await sign(other), 'X-Account-Id': other.id }
   });
@@ -340,6 +369,11 @@ try {
   assert.deepEqual(await otherResponse.json(), { state: null, revision: 0 });
 
   await upgrade(tablet);
+  await syncNow(tablet);await syncNow(phone);
+  assert.equal(active((await envelope(tablet)).local).id, phase.id);
+  assert.equal((await envelope(tablet)).local.journal.entries[first.id].fields.notes, '旧版等待更新时补记');
+  assert.deepEqual((await envelope(tablet)).local, (await envelope(phone)).local);
+  assert.deepEqual(sleepRecord((await envelope(tablet)).local, firstNight), oldNight);
   assert.deepEqual(lowerTargets((await envelope(tablet)).local), [6, 7]);
   await tablet.context().setOffline(true);
   await tablet.reload();
@@ -349,7 +383,7 @@ try {
   assert.deepEqual(lowerTargets((await envelope(tablet)).local), [6, 7]);
   assert.deepEqual(serverErrors, []);
   assert.deepEqual(pageErrors, []);
-  console.log('PASS signed account isolation, second-device upgrade and offline reopen');
+  console.log('PASS T04-M09: second-device upgrade merges the new phase and old pending edit; account isolation, old snapshots, photos, sleep and offline reopen persist');
 } finally {
   await browser?.close();
   if (server.listening) {

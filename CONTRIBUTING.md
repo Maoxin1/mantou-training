@@ -14,10 +14,11 @@
 | 命令 | 范围 | 前提 |
 | --- | --- | --- |
 | `npm test` | 构建与单元／模块回归 | 无需账号和数据库；默认 CI 使用此命令 |
-| `npm run test:browser` | 照片上传、双浏览器、损坏数据保全、完整ZIP恢复、暂停动作、计划预览与离线睡眠导入 | 默认使用内存存储，无需数据库；明确设置 `MEAL_TEST_DATABASE=1` 才使用 `DATABASE_URL`，必须指向已迁移的隔离测试库 |
+| `npm run test:browser` | 照片上传、双浏览器、损坏数据保全、完整ZIP恢复、暂停动作、计划预览、离线睡眠导入及三日持续阶段 | 默认使用内存存储，无需数据库；明确设置 `MEAL_TEST_DATABASE=1` 才使用 `DATABASE_URL`，必须指向已迁移的隔离测试库 |
 | `npm run smoke:online` | 站点资源、未登录 API 拒绝、未登录本地照片和离线恢复 | 默认检查正式站，也可用 `TRAINING_BASE_URL` 指定预览；使用隔离浏览器资料 |
 | `npm run test:update` | 更新入口及本地文字、照片保留 | 同上；本地 `package.json` 的版本应与目标站点一致 |
-| `node tests/browser-version-upgrade.mjs` | 从 2.3.7 同源更新到 2.3.8，核对账号缓存、待同步记录、餐照、睡眠导入和跨版本合并 | 先运行 `npm run build`。在仓库外安装 `@electric-sql/pglite@0.5.15`，将 `TRAINING_PGLITE_ROOT` 指向安装目录 |
+| `node tests/browser-strength-plan.mjs` | 三日计划启用、未来场次生效、周复盘及离线重开 | 默认本地；用 `TRAINING_BASE_URL` 可检查已部署站点，始终新建隔离访客资料，不登录正式账号 |
+| `node tests/browser-version-upgrade.mjs` | 从 2.3.8 同源更新到 2.4.0，核对账号、待同步记录、餐照、睡眠和新旧格式保护／更新后合并 | 先运行 `npm run build`。在仓库外安装 `@electric-sql/pglite@0.5.15`，将 `TRAINING_PGLITE_ROOT` 指向安装目录；可用 `TRAINING_UPGRADE_BASE` 指定旧提交 |
 
 浏览器脚本在 Windows 默认使用已安装的 Edge；其他平台默认使用 Playwright Chromium。可用 `BROWSER_CHANNEL` 指定浏览器通道；没有安装 Chromium 时先执行 `npx playwright install chromium`。
 
