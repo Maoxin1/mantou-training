@@ -17,10 +17,13 @@
 | `npm run test:browser` | 照片上传、双浏览器、损坏数据保全、完整ZIP恢复、暂停动作与离线集成流程 | 默认使用内存存储，无需数据库；明确设置 `MEAL_TEST_DATABASE=1` 才使用 `DATABASE_URL`，必须指向已迁移的隔离测试库 |
 | `npm run smoke:online` | 站点资源、未登录 API 拒绝、未登录本地照片和离线恢复 | 默认检查正式站，也可用 `TRAINING_BASE_URL` 指定预览；使用隔离浏览器资料 |
 | `npm run test:update` | 更新入口及本地文字、照片保留 | 同上；本地 `package.json` 的版本应与目标站点一致 |
+| `node tests/browser-version-upgrade.mjs` | 从 2.3.6 同源更新到候选版，核对账号缓存、待同步记录、餐照和跨版本合并 | 先运行 `npm run build`。在仓库外安装 `@electric-sql/pglite@0.5.15`，将 `TRAINING_PGLITE_ROOT` 指向安装目录 |
 
 浏览器脚本在 Windows 默认使用已安装的 Edge；其他平台默认使用 Playwright Chromium。可用 `BROWSER_CHANNEL` 指定浏览器通道；没有安装 Chromium 时先执行 `npx playwright install chromium`。
 
-浏览器集成测试模拟认证，不证明真实邮箱登录或 JWT 校验正确。测试账号、真实设备和上线前后验收应分别记录。不要给集成脚本传入生产数据库；测试输出写入 `test-output/`，不提交到仓库。
+默认浏览器集成测试使用模拟认证。测试账号、真实设备和上线前后验收分别记录。集成脚本使用隔离数据源，测试输出保存在忽略跟踪的 `test-output/`。
+
+同源升级演练使用本地签发的 JWT、应用的实际同步 API 和内存 PostgreSQL。真实邮箱投递及正式站更新需另行验收。
 
 ## 源码与构建产物
 

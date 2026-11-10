@@ -20,7 +20,8 @@ export function parseSleep(sleepText,stageText){
     for(const p of parts){if(p.start!==cursor||p.end<=p.start||p.end>end||![40001,40002,40003,40004].includes(p.stage)){valid=false;break;}if(p.stage!==40001)actual+=(p.end-p.start)/60000;cursor=p.end;}
     if(cursor!==end)valid=false;
     const date=new Date(end+zone*60000).toISOString().slice(0,10);
-    records.push({source:'Samsung Health',sourceId:id,groupId:/^[\w-]{1,100}$/.test(r.combined_id||'')?r.combined_id:'',date,start:new Date(start).toISOString(),end:new Date(end).toISOString(),offsetMinutes:zone,intervalMinutes:(end-start)/60000,actualMinutes:valid?actual:null});
+    const updated=utc(get(r,'update_time'));
+    records.push({source:'Samsung Health',sourceId:id,groupId:/^[\w-]{1,100}$/.test(r.combined_id||'')?r.combined_id:'',date,start:new Date(start).toISOString(),end:new Date(end).toISOString(),offsetMinutes:zone,intervalMinutes:(end-start)/60000,actualMinutes:valid?actual:null,...(Number.isFinite(updated)?{sourceUpdatedAt:new Date(updated).toISOString()}:{})});
   }
   const unique=new Map();for(const r of records){if(unique.has(r.sourceId)&&JSON.stringify(unique.get(r.sourceId))!==JSON.stringify(r))throw Error('同一睡眠标识存在不同版本，请重新导出');unique.set(r.sourceId,r);}
   return {records:[...unique.values()].sort((a,b)=>b.end.localeCompare(a.end)),warnings};
@@ -42,12 +43,44 @@ export function validateSleepSegments(r){
   try{const expected=mergeSleepSegments(r.segments);return ['sourceId','date','start','end','offsetMinutes','intervalMinutes','actualMinutes','gapMinutes'].every(k=>expected[k]===r[k]);}catch{return false;}
 }
 
-export function sameSleep(a,b){
+export function sameSleep(a,b,includeVersion=false){
   if(!a||!b)return a===b;
   const fields=['source','sourceId','date','start','end','offsetMinutes','intervalMinutes','actualMinutes','gapMinutes'];
+  if(includeVersion)fields.push('sourceUpdatedAt');
   const left=a.segments||[],right=b.segments||[];
   return fields.every(k=>a[k]===b[k])&&(a.groupId||'')===(b.groupId||'')&&
-    left.length===right.length&&left.every((part,i)=>sameSleep(part,right[i]));
+    left.length===right.length&&left.every((part,i)=>sameSleep(part,right[i],includeVersion));
+}
+
+function sourceVersion(part){
+  return typeof part.sourceUpdatedAt==='string'?Date.parse(part.sourceUpdatedAt):NaN;
+}
+
+export function includesOlderSleepPart(previous,sleep){
+  if(!previous)return false;
+  const incoming=new Map((sleep.segments||[sleep]).map(part=>[part.sourceId,part]));
+  return (previous.segments||[previous]).some(part=>{
+    const next=incoming.get(part.sourceId);
+    return next&&sourceVersion(next)<sourceVersion(part);
+  });
+}
+
+export function isNewerSleep(next,previous){
+  if(!next||!previous||next.date!==previous.date||
+    (next.actualMinutes===null&&previous.actualMinutes!==null))return false;
+  const oldParts=previous.segments||[previous],newParts=next.segments||[next];
+  const byId=new Map(newParts.map(part=>[part.sourceId,part]));
+  if(oldParts.length!==byId.size)return false;
+  const differences=oldParts.map(part=>byId.has(part.sourceId)?
+    sourceVersion(byId.get(part.sourceId))-sourceVersion(part):NaN);
+  return differences.every(d=>d>=0)&&differences.some(d=>d>0);
+}
+
+function needsRevisionReview(previous,part){
+  if(sourceVersion(part)>sourceVersion(previous))return false;
+  // Group labels may change when Samsung links fragments. A newly available
+  // stage total can also fill a blank while leaving the interval intact.
+  return !sameSleep({...previous,groupId:part.groupId,actualMinutes:previous.actualMinutes??part.actualMinutes},part);
 }
 
 // Group by Samsung's explicit night identifier, never by proximity alone.
@@ -83,9 +116,12 @@ export function planSleepImport(records,entries,{from,to}){
     if(!validateSleepSegments(sleep)||sleep.date!==date)return review('片段的日期或时区待核对');
     if(!previous)return {date,status:'new',sleep};
     if(sameSleep(previous,sleep))return {date,status:'same',sleep};
-    const ids=new Set(parts.map(p=>p.sourceId));
-    if(!(previous.segments||[previous]).every(p=>ids.has(p.sourceId)))return review('新文件未包含全部已保存片段');
+    if(includesOlderSleepPart(previous,sleep))return {date,status:'older'};
+    const incoming=new Map(parts.map(part=>[part.sourceId,part]));
+    const saved=previous.segments||[previous];
+    if(!saved.every(part=>incoming.has(part.sourceId)))return review('新文件未包含全部已保存片段');
     if(previous.actualMinutes!==null&&sleep.actualMinutes===null)return review('新文件的睡眠阶段不完整');
+    if(saved.some(part=>needsRevisionReview(part,incoming.get(part.sourceId))))return review('无法确认新旧顺序，请手动核对这一晚');
     return {date,status:'update',sleep,previous};
   });
 }

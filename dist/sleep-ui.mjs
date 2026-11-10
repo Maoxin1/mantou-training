@@ -1,5 +1,5 @@
 import {unzipSync,strFromU8} from './meal-zip.mjs';
-import {parseSleep,sleepLine,mergeSleepSegments,planSleepImport,sameSleep} from './sleep-core.mjs';
+import {parseSleep,sleepLine,mergeSleepSegments,planSleepImport,sameSleep,includesOlderSleepPart} from './sleep-core.mjs';
 import {dateOK,entry,plusDays,writeEntry,today} from './journal.mjs';
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function sleepSection(s,date){const r=entry(s,'daily:'+date)?.fields.samsungSleep;return r?`<p class="hint">${esc(sleepLine(r))}</p>${!r.segments&&!Object.hasOwn(r,'groupId')?'<p class="hint">旧版单条导入：可能未包含同一晚的其他片段。可重新导入原ZIP核对完整性。</p>':''}`:'';}
@@ -26,14 +26,14 @@ function bindBatch({root,records,state,save,notify,refresh}){
     }
     preview=plan(state());
     const total=status=>preview.filter(x=>x.status===status).length;
-    count.textContent=`新增 ${total('new')} 晚 · 修订 ${total('update')} 晚 · 重复跳过 ${total('same')} 晚 · 待核对 ${total('review')} 晚`;
-    list.innerHTML=preview.filter(x=>x.status!=='same').map(x=>{
+    count.textContent=`新增 ${total('new')} 晚 · 修订 ${total('update')} 晚 · 重复跳过 ${total('same')} 晚 · 旧版跳过 ${total('older')} 晚 · 待核对 ${total('review')} 晚`;
+    list.innerHTML=preview.filter(x=>x.status!=='same'&&x.status!=='older').map(x=>{
       if(x.status==='review')return `<p class="hint">${x.date} · ${esc(x.reason)}</p>`;
       const change=x.previous?`<small>原记录 · ${esc(sleepLine(x.previous))}</small><br>`:'';
-      return `<label class="journal-field"><span><input type="checkbox" data-sleep-batch="${x.date}" checked>
+      return `<label class="journal-field"><span><input type="checkbox" data-sleep-batch="${x.date}" ${x.status==='new'?'checked':''}>
         ${x.date} · ${x.previous?'修订':'新增'}</span>${change}<small>${esc(sleepLine(x.sleep))}</small></label>`;
     }).join('');
-    button.disabled=!preview.some(canSave);
+    button.disabled=!list.querySelector('[data-sleep-batch]:checked');
   }
   from.onchange=to.onchange=render;
   list.onchange=()=>{button.disabled=!list.querySelector('[data-sleep-batch]:checked');};
@@ -45,12 +45,12 @@ function bindBatch({root,records,state,save,notify,refresh}){
       const current=new Map(plan(s).map(x=>[x.date,x]));
       for(const x of selected){
         const next=current.get(x.date);
-        if(!next||next.status!==x.status||!sameSleep(next.previous,x.previous)||!sameSleep(next.sleep,x.sleep)){
+        if(!next||next.status!==x.status||!sameSleep(next.previous,x.previous,true)||!sameSleep(next.sleep,x.sleep,true)){
           throw Error('睡眠记录已变化，请核对最新预览后再保存');
         }
       }
       for(const {date,sleep} of selected)writeEntry(s,'daily:'+date,'daily',{date,samsungSleep:sleep});
-    })===false){render();return;}
+    },{requireCurrentAccountCache:true})===false){render();return;}
     refresh();
     render();
     notify(`已保存 ${selected.length} 晚睡眠；登录后联网自动同步`);
@@ -75,10 +75,23 @@ export function bindSleepImport({state,save,modal,notify,refresh}){
         const dates=[...new Set(rows.map(r=>r.date))];
         preview.innerHTML=`<div id="sleepBatch"></div><details><summary>手动核对一晚</summary><label>醒来日期<select class="text-input" id="sleepSelect">${dates.map(d=>`<option value="${d}">${d}</option>`).join('')}</select></label><div id="sleepSegments"></div><p id="sleepCombined" class="hint"></p><p id="sleepExisting" class="hint"></p><button class="btn" id="saveSleep">确认保存所选睡眠</button></details>`;
         const batch=()=>bindBatch({root:document.getElementById('sleepBatch'),records:rows,state,save,notify,refresh:()=>{refresh();update();}});
-        const select=document.getElementById('sleepSelect'),existing=document.getElementById('sleepExisting'),combined=document.getElementById('sleepCombined'),button=document.getElementById('saveSleep');let chosen=null;
-        const update=()=>{try{chosen=mergeSleepSegments([...document.querySelectorAll('[data-sleep-segment]:checked')].map(el=>rows[+el.dataset.sleepSegment]));if(chosen.date!==select.value)throw Error('请至少选择一段在所选日期结束的睡眠');combined.textContent='保存预览：'+sleepLine(chosen);const old=entry(state(),'daily:'+chosen.date)?.fields.samsungSleep;existing.textContent=old?'当天已保存：'+sleepLine(old)+'。确认后将替换这条睡眠，保留手填反馈。':'当天尚未保存睡眠。';button.disabled=false;}catch(e){chosen=null;combined.textContent=e.message;existing.textContent='';button.disabled=true;}};
+        const select=document.getElementById('sleepSelect'),existing=document.getElementById('sleepExisting'),combined=document.getElementById('sleepCombined'),button=document.getElementById('saveSleep');let chosen=null,shownEntry;
+        const update=()=>{try{chosen=mergeSleepSegments([...document.querySelectorAll('[data-sleep-segment]:checked')].map(el=>rows[+el.dataset.sleepSegment]));if(chosen.date!==select.value)throw Error('请至少选择一段在所选日期结束的睡眠');combined.textContent='保存预览：'+sleepLine(chosen);shownEntry=state().journal?.entries['daily:'+chosen.date];const old=shownEntry?.fields.samsungSleep;
+          if(shownEntry?.deleted)throw Error('这天的每日记录已删除');
+          if(includesOlderSleepPart(old,chosen))throw Error('所选文件含有旧版片段，已保留已保存记录');
+          existing.textContent=old?'当天已保存：'+sleepLine(old)+'。确认后将替换这条睡眠，保留手填反馈。':'当天尚未保存睡眠。';button.disabled=false;}catch(e){chosen=null;combined.textContent=e.message;existing.textContent='';button.disabled=true;}};
         const show=()=>{const anchor=rows.find(r=>r.date===select.value),end=Date.parse(anchor.end);document.getElementById('sleepSegments').innerHTML=rows.map((r,i)=>({r,i})).filter(({r})=>Date.parse(r.end)<=end&&Date.parse(r.start)>=end-86400000).map(({r,i})=>`<label class="journal-field"><span><input type="checkbox" data-sleep-segment="${i}" ${r.sourceId===anchor.sourceId||(anchor.groupId&&r.groupId===anchor.groupId)?'checked':''}> ${esc(r.date+' · '+sleepLine(r))}</span></label>`).join('');document.querySelectorAll('[data-sleep-segment]').forEach(el=>el.onchange=update);update();};select.onchange=show;show();
-        button.onclick=()=>{if(!chosen)return;const r=chosen,old=entry(state(),'daily:'+r.date)?.fields.samsungSleep;if(sameSleep(old,r)){notify('所选睡眠已经保存，无需重复导入');return;}if(save(s=>writeEntry(s,'daily:'+r.date,'daily',{date:r.date,samsungSleep:r}))===false)return;notify('已保存到'+r.date+'每日记录；联网后账号同步');refresh();update();batch();};
+        button.onclick=()=>{
+          if(!chosen)return;
+          const r=chosen,id='daily:'+r.date,old=shownEntry?.fields.samsungSleep;
+          if(sameSleep(old,r)){notify('所选睡眠已经保存，无需重复导入');return;}
+          if(save(s=>{
+            const current=s.journal?.entries[id];
+            if(current?.deleted||!sameSleep(current?.fields.samsungSleep,old,true))throw Error('睡眠记录已变化，请核对最新预览后再保存');
+            writeEntry(s,id,'daily',{date:r.date,samsungSleep:r});
+          },{requireCurrentAccountCache:true})===false){update();batch();return;}
+          notify('已保存到'+r.date+'每日记录；联网后账号同步');refresh();update();batch();
+        };
         batch();
       }catch(e){if(input.files[0]===f){status.textContent='导入失败：'+e.message;preview.innerHTML='';}}
     };

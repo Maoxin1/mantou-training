@@ -1,5 +1,6 @@
 import {compareTimestamps,latestTimestamp} from './timestamps.mjs';
 import {copy,emptyJournal,validateJournal} from './journal.mjs';
+import {isNewerSleep,sameSleep} from './sleep-core.mjs';
 const stable=x=>x&&typeof x==='object'?(Array.isArray(x)?x.map(stable):Object.fromEntries(Object.keys(x).sort().map(k=>[k,stable(x[k])]))):x;
 const same=(a,b)=>JSON.stringify(stable(a))===JSON.stringify(stable(b));
 const clone=x=>x===undefined?undefined:copy(x);
@@ -36,7 +37,11 @@ export function mergeJournal(base,left,right){
     merged.entries[id]={id,kind:a.kind,created:[a.created,z.created].sort()[0],updated:latestTimestamp([a.updated,z.updated])||a.updated,deleted:a.deleted||z.deleted,fields:{},fieldUpdated:{}};
     for(const k of new Set([...Object.keys(a.fields),...Object.keys(z.fields)])){
       const at=a.fieldUpdated?.[k]||a.updated,zt=z.fieldUpdated?.[k]||z.updated;
-      choose(['entries',id,'fields',k],old?.fields[k],a.fields[k],z.fields[k],`${a.fields.date||z.fields.date||'动作反馈'} · ${k==='rows'?'训练组次（请核对双方全部组次）':k}`,a.fields[k]===undefined?undefined:at,z.fields[k]===undefined?undefined:zt,k==='rows');
+      const path=['entries',id,'fields',k],left=a.fields[k],right=z.fields[k];
+      const sleep=k==='samsungSleep';
+      if(sleep&&isNewerSleep(left,right))setJournalPath(merged,path,left);
+      else if(sleep&&isNewerSleep(right,left))setJournalPath(merged,path,right);
+      else choose(path,old?.fields[k],left,right,`${a.fields.date||z.fields.date||'动作反馈'} · ${k==='rows'?'训练组次（请核对双方全部组次）':sleep?'三星睡眠（请核对双方记录）':k}`,left===undefined?undefined:at,right===undefined?undefined:zt,k==='rows'||(sleep&&!sameSleep(left,right)));
       const picked=merged.entries[id].fields[k];
       merged.entries[id].fieldUpdated[k]=same(picked,a.fields[k])&&!same(picked,z.fields[k])?at:same(picked,z.fields[k])&&!same(picked,a.fields[k])?zt:latestTimestamp([at,zt])||at;
     }

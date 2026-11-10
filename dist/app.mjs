@@ -10,7 +10,14 @@ let cloud=null;let state=fresh(),page='plan',workout=({1:'upper',2:'lower',4:'up
 const local=new LocalState({getItem:k=>localStorage.getItem(k),setItem:(k,v)=>localStorage.setItem(k,v)},KEY);state=local.state;
 if(local.error){$('storageWarning').hidden=false;$('storageWarning').innerHTML='<p>本机未登录记录无法读取，原始数据已保留。本机普通编辑暂不可保存，请在设置中恢复备份，或保留原始数据后新建。</p><button class="inline" id="downloadRaw">下载原始数据</button><button class="inline" id="newLocal">保留原始数据并新建</button>';$('saveStatus').textContent='请恢复原始记录';$('downloadRaw').onclick=()=>download('训练卡原始数据.txt',local.raw??String(local.error),'text/plain;charset=utf-8');$('newLocal').onclick=()=>attempt(()=>{if(cloud?.isAccount())throw Error('请先退出账号再新建本机记录');if(!confirm('保留原始数据副本后，新建本机记录？'))return;local.replace(fresh());state=local.state;$('storageWarning').hidden=true;render();});}
 function restoreRecords(incoming){const restored=validateBackup(clone(incoming));if(!cloud?.import(restored)){local.replace(restored);state=restored;}$('storageWarning').hidden=!local.error;render();}
-function transact(fn){const next=clone(state);const result=fn(next);try{if(!cloud?.save(next))local.save(next);}catch(e){throw Error((e?.message?e.message+'：':'')+'未能写入设备存储，本次更改尚未保存。请检查浏览器存储设置，或先导出备份。');}state=next;$('saveStatus').textContent=cloud?.isAccount()?'已保存本机 · 自动同步':'已保存在此设备';return result;}
+function transact(fn,{requireCurrentAccountCache=false}={}){
+  const next=clone(state),result=fn(next);
+  try{if(!cloud?.save(next,requireCurrentAccountCache?state:undefined))local.save(next);}
+  catch(e){throw Error((e?.message?e.message+'：':'')+'未能写入设备存储，本次更改尚未保存。请检查浏览器存储设置，或先导出备份。');}
+  state=next;
+  $('saveStatus').textContent=cloud?.isAccount()?'已保存本机 · 自动同步':'已保存在此设备';
+  return result;
+}
 function notify(text){$('toast').textContent=text;$('toast').style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').style.display='none',4500);}
 function attempt(fn){try{return fn()}catch(e){notify(e.message);return null;}}
 const badge=e=>e.blocked?['已暂停','blocked']:e.validation?[`验证 ${e.validation.streak} / 2`,'active']:e.records.length?['已记录','']:['待首次记录',''];

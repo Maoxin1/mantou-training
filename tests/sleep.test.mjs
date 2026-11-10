@@ -13,9 +13,47 @@ test('batch import recognizes a reordered legacy cloud record and surfaces real 
   const entries={['daily:'+record.date]:{fields:{samsungSleep:legacy,energy:'good'}}};
   const range={from:record.date,to:record.date};
   assert.equal(planSleepImport([record],entries,range)[0].status,'same');
-  assert.equal(planSleepImport([{...record,actualMinutes:50}],entries,range)[0].status,'update');
+  assert.equal(planSleepImport([{...record,actualMinutes:50}],entries,range)[0].status,'review');
   assert.equal(planSleepImport([{...record,actualMinutes:null}],entries,range)[0].status,'review');
   assert.equal(planSleepImport([record],{},range)[0].status,'new');
+});
+
+test('a saved Samsung correction cannot be reversed by importing an older export',()=>{
+  const source=sleep.replace('time_offset\n','time_offset,update_time\n');
+  const older=parseSleep(source.replace('UTC+0800','UTC+0800,2020-01-02 01:00:00.000'),stages).records[0];
+  const revisedStages=csv('sleep_id,start_time,end_time,stage',[
+    'sample-id,2020-01-01 23:00:00.000,2020-01-01 23:10:00.000,40001',
+    'sample-id,2020-01-01 23:10:00.000,2020-01-02 00:00:00.000,40002'
+  ].join('\n'));
+  const newer=parseSleep(source.replace('UTC+0800','UTC+0800,2020-01-03 01:00:00.000'),revisedStages).records[0];
+  const range={from:older.date,to:older.date}, id='daily:'+older.date;
+  const saved={journal:emptyJournal()};
+  writeEntry(saved,id,'daily',{date:older.date,samsungSleep:older});
+  assert.equal(planSleepImport([newer],saved.journal.entries,range)[0].status,'update');
+  writeEntry(saved,id,'daily',{samsungSleep:newer});
+  const entries=validateJournal(saved.journal).entries;
+  assert.equal(planSleepImport([newer],entries,range)[0].status,'same');
+  assert.equal(planSleepImport([older],entries,range)[0].status,'older');
+
+  const staleDevice={journal:emptyJournal()};
+  writeEntry(staleDevice,id,'daily',{date:older.date,samsungSleep:older});
+  staleDevice.journal.entries[id].fieldUpdated.samsungSleep='2099-01-01T00:00:00.000Z';
+  for(const [left,right] of [[saved.journal,staleDevice.journal],[staleDevice.journal,saved.journal]]){
+    const result=mergeJournal(emptyJournal(),left,right);
+    assert.deepEqual(result.conflicts,[]);
+    assert.equal(result.merged.entries[id].fields.samsungSleep.actualMinutes,50);
+  }
+});
+
+test('concurrent different Samsung sleep records with unknown order remain reviewable',()=>{
+  const [record]=parseSleep(sleep,stages).records;
+  const id='daily:'+record.date;
+  const left={journal:emptyJournal()},right={journal:emptyJournal()};
+  writeEntry(left,id,'daily',{date:record.date,samsungSleep:record});
+  writeEntry(right,id,'daily',{date:record.date,samsungSleep:{...record,actualMinutes:50}});
+  right.journal.entries[id].fieldUpdated.samsungSleep='2099-01-01T00:00:00.000Z';
+  const result=mergeJournal(emptyJournal(),left.journal,right.journal);
+  assert.deepEqual(result.conflicts.map(x=>[x.local.actualMinutes,x.remote.actualMinutes]),[[60,50]]);
 });
 
 test('batch import skips ambiguous dates, deleted days and partial replacements',()=>{

@@ -83,5 +83,28 @@ export function mountCloud({guest,apply,notify}){
   window.addEventListener('storage',e=>{if(e.key===ID||(store&&e.key===store.key))setMessage('另一个窗口已更新数据 · 请刷新后继续，未提交输入请先保留');});document.addEventListener('close',()=>{if(store){update();schedule();}},true);window.addEventListener('online',schedule);window.addEventListener('offline',()=>setMessage('离线 · 新记录会在联网后同步'));
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule();});
   setInterval(()=>{if(!document.hidden)sync();},30000);schedule();
-  return {import(next){if(cacheFailure)throw Error('请先恢复账号原始缓存');if(!ownsWindow)throw Error('请关闭另一训练窗口后刷新，本窗口暂不可编辑');if(!store)return false;store.import(next);update();setMessage('备份已合并 · 如有冲突请展开处理');schedule();return true;},save(next){if(cacheFailure)throw Error('账号原始缓存尚未恢复，当前编辑未保存');if(!ownsWindow)throw Error('请关闭另一训练窗口后刷新，本窗口暂不可编辑');if(!store)return false;store.edit(next);setMessage('已保存本机 · 待同步');schedule();return true;},isAccount:()=>!!store,changed:schedule};
+  return {
+    import(next){if(cacheFailure)throw Error('请先恢复账号原始缓存');if(!ownsWindow)throw Error('请关闭另一训练窗口后刷新，本窗口暂不可编辑');if(!store)return false;store.import(next);update();setMessage('备份已合并 · 如有冲突请展开处理');schedule();return true;},
+    save(next,expected){
+      if(cacheFailure)throw Error('账号原始缓存尚未恢复，当前编辑未保存');
+      if(!ownsWindow)throw Error('请关闭另一训练窗口后刷新，本窗口暂不可编辑');
+      if(!store)return false;
+      if(expected){
+        const planKey='journal:'+JSON.stringify(['trials',expected.journal?.settings.activeTrial,'plan']);
+        const activeTrialKey='journal:'+JSON.stringify(['settings','activeTrial']);
+        if(store.data.conflict?.conflicts.some(({key})=>key===planKey||key===activeTrialKey)){
+          throw Error('请先处理训练安排的记录差异，再重新预览');
+        }
+        // A sync can update the cache while an open dialog is still showing the old state.
+        if(JSON.stringify(store.data.local)!==JSON.stringify(expected)){
+          throw Error('本机账号记录已更新，请关闭后重新预览');
+        }
+      }
+      store.edit(next);
+      setMessage('已保存本机 · 待同步');
+      schedule();
+      return true;
+    },
+    isAccount:()=>!!store,changed:schedule
+  };
 }
