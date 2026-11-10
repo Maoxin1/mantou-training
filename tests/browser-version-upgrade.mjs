@@ -9,12 +9,13 @@ import { fileURLToPath } from 'node:url';
 import { neonConfig } from '@neondatabase/serverless';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { chromium } from 'playwright';
+import { strToU8, zipSync } from 'fflate';
 
 // Run with a separately installed PGlite. All records and authentication stay on loopback.
 assert(process.env.TRAINING_PGLITE_ROOT, 'Set TRAINING_PGLITE_ROOT to the isolated PGlite install');
 const { PGlite } = createRequire(resolve(process.env.TRAINING_PGLITE_ROOT, 'package.json'))('@electric-sql/pglite');
 const root = fileURLToPath(new URL('../', import.meta.url));
-const production = 'a8eb5624328aa88b8179ae12e22a66e6999a77cc';
+const production = '97413ee683a29a172faec2b62641562f1ff463e9';
 const git = args => execFileSync('git', args, { cwd: root });
 function dependencyLock(bytes) {
   const lock = JSON.parse(bytes);
@@ -36,7 +37,7 @@ for (const name of ['auth-sdk.mjs', 'meal-zip.mjs']) {
   oldFiles.set(name, bytes);
   newFiles.set(name, bytes);
 }
-const oldCache = 'mantou-training-shell-v20', newCache = 'mantou-training-shell-v23';
+const oldCache = 'mantou-training-shell-v23', newCache = 'mantou-training-shell-v24';
 assert(oldFiles.get('sw.js').includes(oldCache));
 assert(newFiles.get('sw.js').includes(newCache));
 
@@ -141,8 +142,10 @@ try {
     assert((await page.locator('footer').innerText()).endsWith('v' + oldVersion));
     return page;
   }
-  const waitCache = (page, key) => page.waitForFunction(async key =>
-    !!navigator.serviceWorker.controller && (await caches.keys()).includes(key), key, { timeout: 25000 });
+  const waitCache = async (page, key) => {
+    await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, { timeout: 25000 });
+    assert(await page.evaluate(async key => Boolean(await (await caches.open(key)).match('/')), key));
+  };
   const envelope = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), cacheKey);
   const settled = page => page.waitForFunction(key => {
     const state = JSON.parse(localStorage.getItem(key) || 'null');
@@ -174,6 +177,23 @@ try {
   });
   const oldLocal = state => Object.values(state.journal.entries).find(e => e.kind === 'session');
   const active = state => state.journal.trials[state.journal.settings.activeTrial];
+  const firstNight = '2020-01-02', secondNight = '2020-01-03';
+  const sleepRecord = (state, date) => state.journal.entries['daily:' + date]?.fields.samsungSleep;
+  const zip = { name: 'synthetic-sleep.zip', mimeType: 'application/zip', buffer: Buffer.from(zipSync({
+    'com.samsung.shealth.sleep.20200103.csv': strToU8(
+      'samsung,1\ndatauuid,start_time,end_time,time_offset,update_time\n' +
+      'night-one,2020-01-01 23:00:00.000,2020-01-02 00:00:00.000,UTC+0800,2020-01-02 01:00:00.000\n' +
+      'night-two,2020-01-02 23:00:00.000,2020-01-03 00:00:00.000,UTC+0800,2020-01-03 01:00:00.000\n'),
+    'com.samsung.health.sleep_stage.20200103.csv': strToU8(
+      'samsung,1\nsleep_id,start_time,end_time,stage\n' +
+      'night-one,2020-01-01 23:00:00.000,2020-01-02 00:00:00.000,40002\n' +
+      'night-two,2020-01-02 23:00:00.000,2020-01-03 00:00:00.000,40002\n')
+  })) };
+  async function openSleepZip(page) {
+    await page.locator('[data-page="history"]').click();
+    await page.locator('#importSleep').click();
+    await page.locator('#sleepFile').setInputFiles(zip);
+  }
   const lowerTargets = state => Object.values(state.journal.entries)
     .filter(e => e.kind === 'session').map(e => e.fields.plan[0].min).sort((a, b) => a - b);
   async function openMeal(page, meal) {
@@ -218,6 +238,13 @@ try {
   await openMeal(phone, 'lunch');
   await savePhoto(phone, 'lunch', image, false);
   await close(phone);
+  await openSleepZip(phone);
+  await phone.locator('#sleepSelect').selectOption(firstNight);
+  await phone.locator('#saveSleep').click();
+  await close(phone);
+  const oldNight = sleepRecord((await envelope(phone)).local, firstNight);
+  assert.equal(oldNight.actualMinutes, 60);
+  assert.equal(oldNight.sourceUpdatedAt, undefined);
   await syncNow(phone);
 
   const tablet = await device({ width: 820, height: 1180 });
@@ -240,7 +267,7 @@ try {
   assert.equal(before.pending, true);
   assert.deepEqual(beforePhotos.map(p => [p.meal, p.pending]).sort(), [['dinner', true], ['lunch', false]]);
   assert.equal(signIns, 2);
-  console.log('PASS old v20 writes training and meal photos via signed test account and isolated PostgreSQL');
+  console.log('PASS 2.3.7 writes training, meal photos and a sleep night via an isolated signed account');
 
   pauseSync = true;
   assets = newFiles;
@@ -259,7 +286,17 @@ try {
   await phone.locator('#newSession').click();
   await close(phone);
   assert.deepEqual(lowerTargets((await envelope(phone)).local), [6, 7]);
-  console.log('PASS v20 → v23 same-origin update preserves account, text, photos and pending writes');
+  await openSleepZip(phone);
+  await phone.locator('#sleepFrom').fill(firstNight);
+  await phone.locator('#sleepTo').fill(secondNight);
+  await phone.getByText(/新增 1 晚 · 修订 0 晚 · 重复跳过 1 晚/u).waitFor();
+  await phone.locator('#saveBatchSleep').click();
+  await phone.getByText(/重复跳过 2 晚/u).waitFor();
+  assert(await phone.locator('#saveBatchSleep').isDisabled());
+  await close(phone);
+  assert.deepEqual(sleepRecord((await envelope(phone)).local, firstNight), oldNight);
+  assert.equal(sleepRecord((await envelope(phone)).local, secondNight).actualMinutes, 60);
+  console.log('PASS 2.3.7 → 2.3.8 preserves the account, pending writes and old sleep; only the new night is added');
 
   pauseSync = false;
   await syncNow(phone);
@@ -271,12 +308,14 @@ try {
 
   await tablet.context().setOffline(false);
   await syncNow(tablet);
-  assert((await tablet.evaluate(() => caches.keys())).includes(oldCache), 'tablet still runs v20');
+  assert((await tablet.evaluate(() => caches.keys())).includes(oldCache), 'tablet still runs 2.3.7');
   const mixed = (await envelope(tablet)).local;
   assert.deepEqual(lowerTargets(mixed), [6, 7]);
   assert.equal(active(mixed).plan[0].min, 7);
   assert.equal(active(mixed).changes.length, 1);
   assert.equal(mixed.journal.entries[first.id].fields.recoveryNotes, '旧版平板离线补记');
+  assert.deepEqual(sleepRecord(mixed, firstNight), oldNight);
+  assert.equal(sleepRecord(mixed, secondNight).actualMinutes, 60);
   assert(Object.values(mixed.journal.entries).some(e => e.fields.notes === '更新前未同步的每日记录'));
   await openMeal(tablet, 'dinner');
   await tablet.locator('#mealGallery img').waitFor();
@@ -292,7 +331,7 @@ try {
   assert.equal(stored.rows[0].user_id, user.id);
   assert.deepEqual(stored.rows[0].state, (await envelope(phone)).local);
   assert.equal((await db.query('SELECT object_key FROM training_meal_photos')).rows.length, 2);
-  console.log('PASS v20 and v23 converge after offline reconnect; one plan change, both sessions and both photos persist');
+  console.log('PASS mixed versions converge after reconnect; two sessions, two photos and both sleep nights persist');
 
   const otherResponse = await fetch(origin + '/api/sync', {
     headers: { Authorization: 'Bearer ' + await sign(other), 'X-Account-Id': other.id }
