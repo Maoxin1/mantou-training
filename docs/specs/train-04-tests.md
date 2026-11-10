@@ -20,7 +20,7 @@
 | T04-M12 | R03/R06 | 固定种子10788、12轮×20操作：新场次／修改计划／JSON往返，所有旧快照保持 | B |
 | T04-M13 | R01/R03/R06/R08 | 手机和平板真实账号更新后：旧记录／餐照在，新阶段同步，实际建场与重开 | E，待本人实机验收 |
 | T04-M14 | R06 | `tests/pwa.test.mjs`：独立更新页、重开参数与应用版本一致 | B |
-| T04-M15 | R01/R03/R05/R06 | 正式站隔离访客：旧版文字／餐照升级保全、三日计划完整流程与离线重开 | A，待发布后运行 |
+| T04-M15 | R01/R03/R05/R06 | 正式站隔离访客：旧版文字／餐照升级保全、三日计划完整流程与离线重开 | B，2026-11-10，部署3c55798 |
 
 ## 对抗审查与回归
 
@@ -40,9 +40,10 @@
 - 补查 M10/M11 两项先复现失败，再修复并通过。M12 是已有正确实现的补测，不制造红灯。
 - 最终 `npm test` 104/104 通过；`npm run test:browser` 的6个脚本通过：照片、数据保全、暂停、计划预览、睡眠导入、新三日阶段。
 - `TRAINING_PGLITE_ROOT=<隔离工具目录> node tests/browser-version-upgrade.mjs` 通过。覆盖新旧两端同源升级、未同步补记、实际API与SQL、账号隔离、照片和睡眠保全；不等于真实邮箱收码或三星设备验收。
-- 正式站发布与 M15 待执行；M13 由本人真实手机和平板验收。线上脚本始终使用独立访客存档，不更改正式账号。
+- 正式站 M15 已通过：`WAIT_FOR_DEPLOY=1 npm run test:update` 从正式站2.3.8缓存升级到2.4.0，原合成训练文字与餐照保留；`npm run smoke:online` 验证资源、未授权API拒绝、餐照离线重开；`TRAINING_BASE_URL=https://mantou-training-offline.vercel.app/ node tests/browser-strength-plan.mjs` 通过完整三日阶段流程及390/820px视口。线上脚本始终使用独立访客存档，不更改正式账号。
+- [发布PR #8](https://github.com/Maoxin1/mantou-training/pull/8)，已合并提交 `3c5579843662a0e723f6e30aa6f70abdb1af7e1d` 与测试候选 `640a845` 文件树一致。[PR回归](https://github.com/Maoxin1/mantou-training/actions/runs/42750616819) 在 Ubuntu / Node22 / Chromium 通过；[正式部署](https://vercel.com/mantous-projects-af7e7067/mantou-training-offline/9mHn9QeQUcxRRtomS2Aw4WwKXyWa) 就绪，主分支回归见 [42750777434](https://github.com/Maoxin1/mantou-training/actions/runs/42750777434)。
 - 不新增第三方代码或升级依赖，无触发上游版本复查的条件。本轮只回查已有参考决策，没有声称全面检查所有上游 Issue。
 
 ## 验收结论
 
-部分通过：本地工程验收已通过，发布后的 M15 与真实设备 M13 尚待验证。M13 未完成时，整个 TRAIN-04 保留待验收，不用自动测试数量代替实机证据。训练效果、动作质量与30分钟执行可行性由真实使用再复盘，不属于软件测试结果。
+部分通过：本地工程验收与正式站 M15 已通过，真实设备 M13 尚待验证。M13 未完成时，整个 TRAIN-04 保留待验收，不用自动测试数量代替实机证据。训练效果、动作质量与30分钟执行可行性由真实使用再复盘，不属于软件测试结果。
