@@ -7,6 +7,7 @@ const clone=x=>x===undefined?undefined:copy(x);
 export function setJournalPath(j,path,value){let parent=j;for(const k of path.slice(0,-1)){if(!parent[k])parent[k]={};parent=parent[k];}const key=path.at(-1);if(value===undefined)delete parent[key];else parent[key]=clone(value);}
 export function mergeJournal(base,left,right){
   const b=validateJournal(base),l=validateJournal(left),r=validateJournal(right),merged=emptyJournal(),conflicts=[];
+  merged.version=Math.max(b.version,l.version,r.version);
   const choose=(path,old,a,z,label,aTime,zTime,protectRows=false)=>{let pick;
     if(same(a,z))pick=z;
     else if(protectRows&&same(a,old))pick=z;
