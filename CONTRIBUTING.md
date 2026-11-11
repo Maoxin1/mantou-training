@@ -26,6 +26,10 @@
 
 同源升级演练使用本地签发的 JWT、应用的实际同步 API 和内存 PostgreSQL。真实邮箱投递及正式站更新需另行验收。
 
+TRAIN-05 增加 `tests/browser-focus.mjs`，已纳入 `npm run test:browser`。`npm run test:isolation` 需设置相同的 `TRAINING_PGLITE_ROOT`；使用两个本地签名身份、真实应用 API 和 PGlite SQL 校验隔离，不连接正式库、不替代托管邮箱登录。可用 `TRAINING_UPGRADE_BASE=5e14419` 演练 2.4.0 → 当前候选；不设置时保留 2.3.8 格式迁移回归。
+
+本地静态预览从 `vercel.json` 读取通用安全响应头。修改 CSP 时同时检查 `update.html`、认证、照片和离线入口。图标源为 `dist/icons/icon.svg`，用 `node scripts/render-icons.mjs` 同步生成安装图标。
+
 ## 源码与构建产物
 
 当前 `dist/` 包含手写源码，仅 `auth-sdk.mjs`、`cloud-config.mjs`、`meal-zip.mjs` 为忽略跟踪的生成文件。不要将整个 `dist/` 当作可删除的构建目录；修改这些生成文件对应的入口时，编辑 `src/` 或 `scripts/build.mjs`。

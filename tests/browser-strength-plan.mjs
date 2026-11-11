@@ -33,7 +33,7 @@ try{
   await page.locator('[data-row="0"][data-key=right]').fill('9');
   await page.locator('[data-row="0"][data-key=rir]').selectOption('4');
   await page.click('#closeDialog');
-  await page.click('#adjustTrial');
+  await page.locator('#planDetails > summary').click();await page.click('#adjustTrial');
   await page.locator('#adjustTrialForm details').nth(1).locator('summary').click();
   await page.locator('[data-field="1-min"]').fill('7');
   await page.locator('[data-field=reason]').fill('验收：只影响确认后新建场次');
@@ -44,7 +44,7 @@ try{
   s=await read();const newest=Object.values(s.journal.entries).filter(e=>e.kind==='session'&&e.fields.trialId===phase.id).at(-1);
   assert.equal(newest.fields.workout,'C');assert.equal(newest.fields.plan.find(e=>e.id==='push').min,7);
   assert.deepEqual(s.journal.entries[Object.keys(before.journal.entries)[0]],Object.values(before.journal.entries)[0]);
-  await page.click('#quickReview');assert.match(await page.locator('.review-preview').innerText(),/三日力量训练周复盘/);
+  await page.click('#quickReview');await page.click('#reviewDetails > summary');assert.match(await page.locator('.review-preview').innerText(),/三日力量训练周复盘/);
   await page.click('#closeDialog');
   await page.click('[data-page=history]');await page.locator('#journalDate').fill('2020-01-01');
   await page.locator('#journalDate').dispatchEvent('change');await page.click('#reviewTrialButton');

@@ -3,7 +3,7 @@ const dir=new URL('../dist/',import.meta.url),source=fs.readFileSync(new URL('sw
 test('release version matches the update destination and visible app version',()=>{
   const {version}=JSON.parse(fs.readFileSync(new URL('../package.json',import.meta.url),'utf8'));
   const update=fs.readFileSync(new URL('update.html',dir),'utf8'),index=fs.readFileSync(new URL('index.html',dir),'utf8');
-  assert.equal(update.match(/updated=([\d.]+)/u)?.[1],version);
+  assert.equal(fs.readFileSync(new URL('update.mjs',dir),'utf8').match(/updated=([\d.]+)/u)?.[1],version);
   assert(update.includes('版本 '+version));assert(index.includes('v'+version));
 });
 function sandbox(fetcher){const handlers={},data=new Map();const caches={async open(name){if(!data.has(name))data.set(name,new Map());const m=data.get(name);return {async put(k,v){m.set(typeof k==='string'?k:k.url,v)},async match(k){return m.get(typeof k==='string'?k:k.url)?.clone()}}},async keys(){return [...data.keys()]},async delete(k){return data.delete(k)}};const self={location:{origin:'https://test.local'},clients:{claim:async()=>{}},addEventListener:(k,v)=>handlers[k]=v,skipWaiting:()=>{}};const RequestForTest=class extends Request{constructor(input,options){super(new URL(input,'https://test.local').href,options)}};vm.runInNewContext(source,{self,caches,Request:RequestForTest,Response,URL,fetch:fetcher,Set,AbortController,setTimeout,clearTimeout});return {handlers,caches,data};}
