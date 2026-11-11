@@ -54,8 +54,27 @@ $('copyMarkdown').onclick=async()=>{try{await navigator.clipboard.writeText(unif
 $('exportBackup').onclick=()=>attempt(()=>download(`mantou-training-backup-${localDate()}.json`,encodeBackup(state),'application/json'));
 $('importBackup').onchange=async ev=>{try{const file=ev.target.files[0];if(!file)return;if(file.size>5*1024*1024)throw Error('备份超过5MB，请检查文件。');pendingImport=validateBackup(JSON.parse(await file.text()));const n=Object.values(pendingImport.exercises).reduce((sum,e)=>sum+e.records.length,0);$('importPreview').innerHTML=`<div class="warning">备份包含 ${n} 条记录。登录时合并到账号，保留不同日期记录；有分歧时需要选择。未登录时替换本机数据。请先下载当前完整备份。</div><button class="btn warn" id="confirmImport">确认替换并恢复</button><button class="inline" id="cancelImport">取消</button>`;$('cancelImport').onclick=()=>{pendingImport=null;$('importPreview').innerHTML=''};$('confirmImport').onclick=()=>attempt(()=>{restoreRecords(pendingImport);pendingImport=null;$('storageWarning').hidden=!local.error;$('saveStatus').textContent='已恢复并保存';render();notify('备份已恢复。')});}catch(e){pendingImport=null;$('importPreview').innerHTML=`<div class="error">未恢复：${esc(e.message)}</div>`;}};}
 function showSettings(){page='export';render();window.scrollTo(0,0);const panel=document.querySelector('.cloud-panel');if(panel)panel.open=true;}
-$('accountShortcut').onclick=showSettings;$('systemStatus').onclick=showSettings;$('resolveShortcut').onclick=showSettings;
-let cloudMessage='未登录 · 记录保存在本机',pwaMessage='正在准备离线文件';function statusLine(){const error=/失败|差异|冲突|不可|重新登录|另一|检查浏览器/.test(cloudMessage),pwaError=/未准备好|先联网/.test(pwaMessage);$('systemStatus').textContent=(/离线/.test(pwaMessage)&&!navigator.onLine?'离线 · ':/已与云端/.test(cloudMessage)?'已同步 · ':/未登录/.test(cloudMessage)?'本机记录 · ':/待同步|等待|正在同步/.test(cloudMessage)?'待同步 · ':'账号记录 · ')+(/已就绪|离线模式/.test(pwaMessage)?'可离线使用':'准备离线文件');$('systemStatus').title=cloudMessage+'；'+pwaMessage;$('resolveShortcut').hidden=!/差异|冲突/.test(cloudMessage);$('systemAlert').hidden=!(error||pwaError);$('systemAlert').textContent=error?cloudMessage:pwaMessage;}window.addEventListener('training:cloud-status',e=>{cloudMessage=e.detail;statusLine()});window.addEventListener('training:pwa-status',e=>{pwaMessage=e.detail;statusLine()});
+$('accountShortcut').onclick=showSettings;$('resolveShortcut').onclick=showSettings;
+let cloudMessage='未登录 · 记录保存在本机',pwaMessage='正在准备离线文件';
+function statusLine(){
+  const conflict=/差异|冲突/.test(cloudMessage);
+  const error=/失败|差异|冲突|不可|重新登录|另一|检查浏览器/.test(cloudMessage);
+  const pwaError=/未准备好|先联网/.test(pwaMessage);
+  let label='账号记录';
+  if(error||pwaError)label='查看状态';
+  else if(!navigator.onLine)label='离线';
+  else if(/已与云端/.test(cloudMessage))label='已同步';
+  else if(/未登录/.test(cloudMessage))label='本机记录';
+  else if(/待同步|等待|正在同步/.test(cloudMessage))label='待同步';
+  $('systemStatus').textContent=label;
+  $('accountShortcut').setAttribute('aria-label','账号与同步 · '+label);
+  $('accountShortcut').title=cloudMessage+'；'+pwaMessage;
+  $('resolveShortcut').hidden=!conflict;
+  $('systemAlert').hidden=!(error||pwaError);
+  $('systemAlert').textContent=error?cloudMessage:pwaMessage;
+}
+window.addEventListener('training:cloud-status',e=>{cloudMessage=e.detail;statusLine();});
+window.addEventListener('training:pwa-status',e=>{pwaMessage=e.detail;statusLine();});
 document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{page=b.dataset.page;render();window.scrollTo(0,0)});document.querySelector('.brand').onclick=e=>{e.preventDefault();page='plan';render();window.scrollTo(0,0)};$('closeDialog').onclick=()=>$('exerciseDialog').close();$('exerciseDialog').addEventListener('click',e=>{if(e.target===$('exerciseDialog')){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.target.close()}});render();
 
 cloud=mountCloud({guest:()=>{try{return validateBackup(JSON.parse(localStorage.getItem(KEY)))}catch{return fresh()}},apply:(next,account)=>{state=validateBackup(next);$('saveStatus').textContent=account?'账号数据 · 本机缓存':'设备内保存';render();},notify});

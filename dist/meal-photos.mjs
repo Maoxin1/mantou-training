@@ -2,6 +2,7 @@ import {MealStore} from './meal-store.mjs';
 import {MEALS,PHOTO_LIMIT,photoMeta,validatePhoto} from './meal-core.mjs';
 import {mealOwner,mealRequest} from './cloud.mjs';
 import {buildArchives,readArchive,ARCHIVE_LIMIT} from './archive-core.mjs';
+import {journalIcon} from './journal-cards.mjs';
 const stores=new Map(),jobs=new Map();let activeDate=null;
 export function mealStore(owner=mealOwner()){if(!stores.has(owner))stores.set(owner,new MealStore(owner));return stores.get(owner);}
 const changed=()=>window.dispatchEvent(new Event('training:photos'));
@@ -37,12 +38,30 @@ export async function compressPhoto(file){
   if(!blob||blob.size>PHOTO_LIMIT)throw Error('照片压缩失败，请换一张照片');
   return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(Error('照片读取失败'));reader.readAsDataURL(blob);});
 }
-export function mealPhotoSection(){return `<section class="meal-section"><div class="row"><b>用照片记一餐</b><button class="inline" id="retryPhotos" type="button">同步照片</button></div><p class="hint" id="photoStatus" role="status">正在读取本机照片…</p><div class="meal-tabs" role="group" aria-label="餐次">${Object.entries(MEALS).map(([k,v])=>`<button type="button" data-meal="${k}" aria-pressed="${k==='breakfast'}">${v}</button>`).join('')}</div><div id="mealGallery" class="meal-gallery"></div><div class="journal-actions"><label class="btn secondary file-label">拍照<input id="mealCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label><label class="btn secondary file-label">选照片<input id="mealFile" type="file" accept="image/jpeg,image/png,image/webp"></label></div><div id="mealAmounts"></div><details><summary>拍照与份量说明</summary><p>餐前拍整餐，包装食品可另拍标签。每天最多12张。照片仅作参考，请补充实际吃掉的份量。</p></details></section>`;}
+export function mealPhotoSection({quick=false}={}){
+  const sync='<button class="inline" id="retryPhotos" type="button">同步照片</button>';
+  const amounts='<div id="mealAmounts"></div>';
+  return `<section class="meal-section ${quick?'meal-quick':''}">
+    ${quick?'':`<div class="row"><b>用照片记一餐</b>${sync}</div>`}
+    <div class="meal-tabs" role="group" aria-label="餐次">${Object.entries(MEALS).map(([k,v])=>`<button type="button" data-meal="${k}" aria-pressed="${k==='breakfast'}">${v}</button>`).join('')}</div>
+    <div id="mealGallery" class="meal-gallery"></div>
+    <div class="journal-actions meal-photo-actions">
+      <label class="btn secondary file-label meal-camera">${quick?journalIcon('camera'):''}拍照<input id="mealCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label>
+      <label class="btn secondary file-label meal-library">${quick?journalIcon('gallery'):''}从相册选<input id="mealFile" type="file" accept="image/jpeg,image/png,image/webp"></label>
+    </div>
+    <p class="hint" id="photoStatus" role="status">正在读取本机照片…</p>
+    ${quick?`<details id="mealPortionDetails" class="training-disclosure"><summary>份量与备注 <span class="muted">可选</span>${journalIcon('down')}</summary>${amounts}</details>`:amounts}
+    <details id="mealPhotoDetails" class="${quick?'training-disclosure training-plan-details':''}"><summary>照片状态与说明 ${quick?journalIcon('down'):''}</summary>
+      ${quick?sync:''}<p>餐前拍整餐，包装食品可另拍标签。每天最多12张。照片仅作参考，请补充实际吃掉的份量。</p>
+    </details>
+  </section>`;
+}
 export function bindMealPhotos({date,getFields,saveFields,notify}){
   const owner=mealOwner(),s=mealStore(owner);let selected='breakfast',busy=false,disposed=false,synced=false,lastError='';
   activeDate=date;const status=document.getElementById('photoStatus'),gallery=document.getElementById('mealGallery'),amounts=document.getElementById('mealAmounts');
+  const quick=Boolean(status.closest('.meal-quick'));
   const valid=()=>!disposed&&status.isConnected&&mealOwner()===owner;
-  const fail=e=>{if(valid()){lastError=e.message||'照片操作失败，本机副本保留';status.textContent=lastError;}};
+  const fail=e=>{if(valid()){lastError=e.message||'照片操作失败，本机副本保留';status.textContent=lastError;status.classList.add('error');}};
   async function draw(){
     const all=await s.all();if(!valid())return;gallery.replaceChildren();
     for(const p of all.filter(p=>p.date===date&&p.meal===selected&&!p.deleted)){
@@ -54,7 +73,9 @@ export function bindMealPhotos({date,getFields,saveFields,notify}){
     }
     const n=all.filter(p=>p.pending).length;
     status.textContent=lastError||(owner==='guest'?'未登录：照片只保存在此设备；登录后可在这里主动迁入。':!navigator.onLine?`离线：照片保存在此设备${n?'，'+n+'项待同步':''}`:n?`${n}项照片变更待同步`:synced?'照片已同步；其他设备打开同一天即可查看':'本机照片已保存 · 联网同步后其他设备可见');
-    if(!gallery.children.length){const p=document.createElement('p');p.className='hint';p.textContent='这一餐还没有照片，也可以只写文字。';gallery.append(p);}
+    if(quick&&!lastError&&owner==='guest')status.textContent=gallery.children.length?'照片仅存本机':'';
+    status.classList.toggle('error',Boolean(lastError));
+    if(!quick&&!gallery.children.length){const p=document.createElement('p');p.className='hint';p.textContent='这一餐还没有照片，也可以只写文字。';gallery.append(p);}
   }
   function drawAmounts(){
     amounts.replaceChildren();const f=getFields();

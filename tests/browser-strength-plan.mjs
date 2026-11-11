@@ -28,7 +28,7 @@ try{
   s=await read();let current=Object.values(s.journal.entries).filter(e=>e.kind==='session'&&e.fields.trialId===phase.id).at(-1);
   assert.equal(current.fields.workout,'B');
   assert.deepEqual(current.fields.plan.map(e=>e.id),['dbrow','push','rdl','lateral','rear']);
-  await page.click('[data-journal-exercise=dbrow]');
+  await page.click('#sessionActions > summary');await page.click('[data-journal-exercise=dbrow]');
   await page.locator('[data-row="0"][data-key=left]').fill('10');
   await page.locator('[data-row="0"][data-key=right]').fill('9');
   await page.locator('[data-row="0"][data-key=rir]').selectOption('4');

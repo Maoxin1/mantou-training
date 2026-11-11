@@ -24,8 +24,10 @@ try{
   await page.click('#quickReview');
   const review=page.locator('#reviewSummary');
   assert.match(await review.innerText(),/待优先复核的不适记录/,'row pain must remain visible before expanding sessions');
-  await review.locator('details').first().locator('summary').click();
-  await review.locator('details').last().locator('summary').click();
+  await review.locator('#reviewSessions > summary').click();
+  await review.locator('#reviewSessions > details > summary').first().click();
+  await review.locator('#reviewDaily > summary').click();
+  await review.locator('#reviewDaily > details > summary').click();
   const text=await review.innerText();
   for(const fact of ['右肩刺痛','右肩不适','右肩痛持续到次日','只完成一侧','临时用弹力带','疼痛／明显不适','不确定','右 未填','鸡蛋和红薯','运动后加了一杯奶','入睡慢／夜醒／恢复差'])assert(text.includes(fact),`readable review retains ${fact}`);
   assert.match(text,/早餐：.*鸡蛋和红薯.*实际食用：未填写/,'old meal text and missing portion are distinct');
@@ -45,8 +47,10 @@ try{
   await page.reload();await page.click('#quickReview');
   assert.match(await review.innerText(),/待优先复核的不适记录/,'pain without counts is still visible');
   assert.match(await review.locator('.review-facts').innerText(),/0\s*场有次数记录/,'pain alone does not imply actual repetitions');
+  await review.locator('#reviewMissing > summary').click();
   assert.match(await review.innerText(),/1 场疼痛或恢复反馈未填/);
-  await review.locator('details').first().locator('summary').click();
+  await review.locator('#reviewSessions > summary').click();
+  await review.locator('#reviewSessions > details > summary').first().click();
   assert.match(await review.innerText(),/疼痛／明显不适/,'row quality remains available when every count is empty');
   console.log('PASS readable review retains discomfort, variants, incomplete sides, old meal text and sleep without mutation');
 }finally{await browser?.close();server.kill();}

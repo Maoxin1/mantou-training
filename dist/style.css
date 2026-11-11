@@ -49,3 +49,82 @@ dialog{padding:20px}#journalSave{font-size:.875rem;padding:4px 0}
 .error,.warning{font-size:1rem;color:#a42a20}
 @media(min-width:760px){.shell{padding-left:40px;padding-right:40px}.exercise-grid{gap:14px}}
 @media(max-width:360px){.shell{padding-left:16px;padding-right:16px}.plan-heading h1{font-size:1.75rem}.journal-columns{gap:8px}dialog{padding:16px}}
+
+/* Training, quick meal, and review surfaces */
+:root {
+  --training-blue: #0864d8;
+  --training-ink: #1d2939;
+  --training-muted: #55667d;
+  --training-border: #dbe4f0;
+  --training-soft: #eaf2ff;
+}
+body { background: #f3f6fa; }
+.journal-icon { width: 1.25rem; height: 1.25rem; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+header { height: auto; min-height: 68px; gap: 4px 12px; flex-wrap: wrap; }
+#accountShortcut { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; color: var(--training-muted); font-size: .875rem; }
+#accountShortcut .journal-icon { width: 1.125rem; height: 1.125rem; }
+.training-date { color: var(--training-muted); font-size: .9375rem; margin: 10px 0 4px; }
+.training-layout { color: var(--training-ink); display: grid; gap: 14px; margin-top: 14px; }
+.training-hero.card { margin: 0; padding: 14px 15px 15px; border-radius: 19px; background: var(--training-soft); border-color: #d7e5f9; }
+.training-hero-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0 8px; }
+.training-hero h2 { margin: 0; padding: 4px 0; font-size: 1.25rem; }
+.training-hero p { margin: 5px 0 13px; }
+.training-hero .btn { margin: 0; }
+.training-hero .btn + .btn, .training-hero h2 + .btn { margin-top: 10px; }
+.workout-picker { position: relative; display: flex; align-items: center; min-height: 44px; color: #245784; }
+.workout-picker span { display: flex; align-items: center; gap: 4px; }
+.workout-picker select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.workout-picker:focus-within, .meal-photo-actions .file-label:focus-within { outline: 3px solid var(--training-blue); outline-offset: 2px; }
+.training-hero .training-primary { display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--training-blue); font-weight: 650; }
+.training-resume { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; border-top: 1px solid #d4e1f5; padding: 11px 0; }
+.training-resume strong, .training-resume strong + span { display: block; }
+.training-resume strong + span { font-size: .875rem; color: var(--training-muted); }
+.training-groups { display: flex; flex-wrap: wrap; gap: 4px; }
+.training-groups span { display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid #829dbf; border-radius: 50%; }
+.training-groups .entered { background: var(--training-blue); border-color: var(--training-blue); color: white; }
+.training-groups .journal-icon { width: 14px; height: 14px; }
+.training-tools { display: flex; gap: 0 12px; flex-wrap: wrap; justify-content: space-between; margin-top: 3px; }
+.training-tools .inline { display: flex; align-items: center; gap: 6px; font-size: .9375rem; padding: 0; }
+.training-quick { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-top: 10px; }
+.training-quick .btn, #dialogContent .review-export { background: white; color: var(--training-ink); border: 1px solid var(--training-border); font-weight: 650; }
+.training-quick .btn, #dialogContent .review-export, .meal-quick .file-label { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 51px; padding: 8px; }
+.training-quick .journal-icon, .review-export .journal-icon { color: #356dac; }
+.training-disclosure { background: #fff; border: 1px solid var(--training-border); border-radius: 15px; padding: 0 13px; margin: 0 0 10px; }
+.training-disclosure > summary, .review-date-picker > summary { list-style: none; display: flex; align-items: center; gap: 8px; min-height: 53px; padding: 9px 0; }
+.training-disclosure > summary::-webkit-details-marker, .review-date-picker > summary::-webkit-details-marker { display: none; }
+.training-disclosure > summary .journal-icon:last-child { margin-left: auto; width: 1.125rem; }
+.training-disclosure[open] > summary .journal-icon:last-child { transform: rotate(180deg); }
+#sessionActions > summary { font-size: 1rem; font-weight: 650; }
+#sessionActions > summary .journal-icon:first-child { color: #356dac; }
+.training-plan-details { background: transparent; border-color: transparent; padding: 0; }
+.training-plan-details > summary { color: var(--training-muted); }
+.training-exercises .card { margin: 0; padding: 8px 0; border: 0; border-radius: 0; border-top: 1px solid var(--training-border); box-shadow: none; }
+.exercise-progress { grid-column: 1; color: var(--training-muted); font-size: .875rem; }
+.exercise-entry .exercise-state { align-self: center; display: flex; }
+.next-training-group { border-color: #9cbae3; }
+
+.meal-quick .meal-photo-actions { display: grid; }
+.meal-quick .file-label { position: relative; margin: 0; min-width: 0; }
+.meal-quick .file-label input { display: block; position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.meal-quick .meal-camera { flex-direction: column; min-height: 140px; border: 1px dashed #9ab7df; background: var(--training-soft); color: #1059a7; font-weight: 650; }
+.meal-quick .meal-camera .journal-icon { width: 2.5rem; height: 2.5rem; }
+.meal-quick .meal-library { background: white; border: 1px solid var(--training-border); }
+.meal-quick #mealGallery:empty, .meal-quick #photoStatus:empty, #journalSave.compact-save:not(.error) { display: none; }
+.meal-quick #mealGallery:not(:empty) { margin-bottom: 12px; }
+.meal-quick .meal-tabs { margin: 10px 0 14px; }
+.meal-quick #mealPortionDetails { margin-top: 12px; }
+.meal-quick #mealPortionDetails[open] { padding-bottom: 5px; }
+.review-date { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: start; column-gap: 12px; }
+.review-date > p { margin: 12px 0; }
+.review-date-picker { margin: 0; }
+.review-date-picker > summary { min-height: 44px; color: #245784; }
+.review-date-picker .journal-field { margin: 0 0 10px; }
+.review-metrics { background: #fff; border: 1px solid var(--training-border); border-radius: 16px; padding: 13px 10px; margin: 8px 0 14px; }
+#reviewSummary .review-metrics h3 { display: flex; align-items: center; gap: 8px; margin: 0 4px 11px; font-size: 1rem; }
+.review-metrics h3 .journal-icon { color: #356dac; }
+.review-metrics .review-facts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 0; margin: 0; }
+.review-metrics .review-facts p { padding: 0 6px; }
+.review-metrics .review-facts p + p { border-left: 1px solid var(--training-border); }
+@media (min-width:760px) {
+  .training-layout { grid-template-columns: minmax(0,1fr) minmax(0,1fr); align-items: start; gap: 22px; }
+}

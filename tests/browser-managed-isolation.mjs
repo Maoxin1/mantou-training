@@ -54,7 +54,7 @@ try{
   const seed=async(page,marker,color)=>{
     await page.click('#startStrength');await page.click('#confirmStrength');await page.click('#beginSession');
     await page.locator('[data-row="0"][data-key="left"], [data-row="0"][data-key="reps"]').first().fill('8');await page.click('#closeDialog');
-    await page.click('#todayFeedback');await page.click('[data-meal=lunch]');await page.locator('#mealAmounts input').fill(marker);await page.locator('#mealAmounts select').selectOption('part');
+    await page.click('#todayFeedback');await page.click('[data-meal=lunch]');await page.click('#mealPortionDetails > summary');await page.locator('#mealAmounts input').fill(marker);await page.locator('#mealAmounts select').selectOption('part');
     const image=await page.evaluate(color=>{const c=document.createElement('canvas');c.width=160;c.height=120;c.getContext('2d').fillStyle=color;c.getContext('2d').fillRect(0,0,160,120);return c.toDataURL('image/jpeg').split(',')[1];},color);
     await page.locator('#mealFile').setInputFiles({name:'synthetic.jpg',mimeType:'image/jpeg',buffer:Buffer.from(image,'base64')});
     await page.waitForFunction(()=>!document.getElementById('mealFile').disabled);
