@@ -20,7 +20,7 @@ try{
   await page.locator('#closeDialog').click();const rawDownload=page.waitForEvent('download');await page.locator('#downloadRaw').click();
   assert.equal(await readFile(await(await rawDownload).path(),'utf8'),broken);
   const records=fresh();startTrial(records,{start:'2026-10-20'});writeEntry(records,'daily:2026-10-20','daily',{date:'2026-10-20',notes:'roundtrip synthetic'});
-  await page.click('[data-page=export]');await page.locator('#importBackup').setInputFiles({name:'synthetic.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(records))});await page.locator('#confirmImport').click();
+  await page.click('[data-page=export]');if(await page.locator('#legacyExports').count())await page.click('#legacyExports > summary');await page.locator('#importBackup').setInputFiles({name:'synthetic.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(records))});await page.locator('#confirmImport').click();
   assert(await page.evaluate(raw=>Object.keys(localStorage).some(k=>k.startsWith('mantou-training-v1:recovery:')&&localStorage.getItem(k)===raw),broken));
   assert.equal(await page.locator('#storageWarning').isVisible(),false);
   const photo={id:crypto.randomUUID(),date:'2026-10-20',meal:'lunch',data:Buffer.from([255,216,255,217]).toString('base64')};

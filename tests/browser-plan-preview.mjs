@@ -30,7 +30,7 @@ try {
     .filter(e => e.kind === 'session')
     .map(e => e.fields.plan[0].min);
   async function edit(target = page) {
-    await target.click('#adjustTrial');
+    if(!await target.locator('#planDetails').evaluate(el=>el.open))await target.locator('#planDetails > summary').click();await target.click('#adjustTrial');
     await target.locator('#adjustTrialForm summary').first().click();
   }
   async function preview(min, target = page) {
@@ -143,7 +143,8 @@ try {
   await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
   await page.context().setOffline(true);
   await page.reload();
-  await page.locator('#adjustTrial').waitFor();
+  await page.locator('#planDetails > summary').click();
+  await page.locator('#planDetails > summary').waitFor();
   assert.deepEqual(await readState(), state);
   await page.context().setOffline(false);
   console.log('PASS T01-M03: failed write retains the preview, repeat confirmation saves once, offline reopen retains it');
@@ -373,7 +374,7 @@ try {
   assert.equal(await readGuest(interruptedPage),beforeInterruption);
   await preview(9,interruptedPage);
   await interruptedPage.reload();
-  await interruptedPage.locator('#adjustTrial').waitFor();
+  await interruptedPage.locator('#planDetails > summary').waitFor();
   assert.equal(await readGuest(interruptedPage),beforeInterruption);
   await edit(interruptedPage);
   assert.equal(await interruptedPage.locator('[data-field="0-min"]').inputValue(),'8');
@@ -391,7 +392,7 @@ try {
   assert.equal(await fullHistoryPage.locator('#adjustPreview').isVisible(),true);
   assert.equal(await readGuest(fullHistoryPage),beforeFullConfirm);
   await fullHistoryPage.reload();
-  await fullHistoryPage.locator('#adjustTrial').waitFor();
+  await fullHistoryPage.locator('#planDetails > summary').waitFor();
   assert.equal(await readGuest(fullHistoryPage),beforeFullConfirm);
   console.log('PASS T01-M13: exceeding the current history limit preserves the stored plan and all 200 entries');
 

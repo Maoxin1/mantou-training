@@ -41,6 +41,10 @@ try{
   await page.getByText('照片已同步；其他设备打开同一天即可查看',{exact:true}).waitFor();
   assert.equal(await page.locator('#mealGallery img').count(),1);
   await page.waitForFunction(()=>!document.getElementById('mealFile').disabled);
+  await page.click('[data-meal=breakfast]');
+  await page.locator('#mealGallery').getByText('这一餐还没有照片，也可以只写文字。',{exact:true}).waitFor();
+  assert.equal(await page.locator('#photoStatus').innerText(),'照片已同步；其他设备打开同一天即可查看','T05-B01: switching meals must retain confirmed sync status');
+  await page.click('[data-meal=lunch]');
   await page.locator('#mealAmounts input').fill('剩半碗饭');await page.locator('#mealAmounts select').selectOption('part');
   await context.setOffline(true);
   await page.locator('[data-meal=dinner]').click();await page.locator('#mealFile').setInputFiles({name:'offline.jpg',mimeType:'image/jpeg',buffer:Buffer.from(image,'base64')});

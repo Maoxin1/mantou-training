@@ -39,6 +39,8 @@ for (const name of ['auth-sdk.mjs', 'meal-zip.mjs']) {
 }
 const cacheName = files => files.get('sw.js').toString().match(/mantou-training-shell-v\d+/u)[0];
 const oldCache = cacheName(oldFiles), newCache = cacheName(newFiles);
+const oldSupportsStrength=oldFiles.has('strength-plan.mjs');
+const securityHeaders=JSON.parse(await readFile(resolve(root,'vercel.json'),'utf8')).headers.find(x=>x.source==='/(.*)')?.headers||[];
 assert.notEqual(newCache, oldCache);
 assert(oldFiles.get('sw.js').includes(oldCache));
 assert(newFiles.get('sw.js').includes(newCache));
@@ -63,6 +65,7 @@ const server = createServer(async (req, res) => {
     res.end(JSON.stringify(value));
   };
   try {
+    if(assets===newFiles)for(const {key,value}of securityHeaders)res.setHeader(key,value);
     res.setHeader('Cache-Control', 'no-store');
     if (path === '/cloud-config.mjs') {
       res.setHeader('Content-Type', 'text/javascript');
@@ -283,6 +286,7 @@ try {
   assert.deepEqual(await envelope(phone), before);
   assert.deepEqual(await photos(phone), beforePhotos);
   assert.equal(await phone.evaluate(() => JSON.parse(localStorage.getItem('mantou-training-account')).email), user.email);
+  if(await phone.locator('#planDetails').count())await phone.locator('#planDetails > summary').click();
   await phone.locator('#adjustTrial').click();
   await phone.locator('#adjustTrialForm summary').first().click();
   await phone.locator('[data-field="0-min"]').fill('7');
@@ -340,7 +344,7 @@ try {
   assert.equal((await db.query('SELECT object_key FROM training_meal_photos')).rows.length, 2);
   console.log('PASS mixed versions converge after reconnect; two sessions, two photos and both sleep nights persist');
 
-  // New schema: the old client must stop before PUT, retain its pending edit, then merge after update.
+  // Older unsupported clients must stop before PUT. 2.4.0 already understands this schema.
   await tablet.context().setOffline(true);
   await tablet.locator('#beginSession').click();
   await tablet.locator('[data-field="notes"]').fill('旧版等待更新时补记');
@@ -357,10 +361,18 @@ try {
   await tablet.context().setOffline(false);
   await tablet.locator('#accountShortcut').click();
   await tablet.getByRole('button', { name: '立即同步', exact: true }).click();
-  await tablet.locator('#systemAlert').filter({ hasText: '同步失败' }).waitFor();
-  assert.deepEqual(await envelope(tablet), pendingOld, 'unsupported remote data must not replace pending local data');
-  assert.deepEqual((await db.query('SELECT state,revision FROM training_sync')).rows[0], afterActivation);
-  console.log('PASS T04-M09: old client rejects journal v2 without dropping pending data or writing over the server');
+  if(!oldSupportsStrength){
+    await tablet.locator('#systemAlert').filter({ hasText: '同步失败' }).waitFor();
+    assert.deepEqual(await envelope(tablet), pendingOld, 'unsupported remote data must not replace pending local data');
+    assert.deepEqual((await db.query('SELECT state,revision FROM training_sync')).rows[0], afterActivation);
+    console.log('PASS T04-M09: old client rejects journal v2 without dropping pending data or writing over the server');
+  }else{
+    await settled(tablet);await syncNow(phone);
+    assert.equal(active((await envelope(tablet)).local).id,phase.id);
+    assert.equal((await envelope(tablet)).local.journal.entries[first.id].fields.notes,'旧版等待更新时补记');
+    assert.deepEqual((await envelope(tablet)).local,(await envelope(phone)).local);
+    console.log('PASS T05-M06: schema-compatible 2.4.0 merges the new phase with its pending feedback');
+  }
 
   const otherResponse = await fetch(origin + '/api/sync', {
     headers: { Authorization: 'Bearer ' + await sign(other), 'X-Account-Id': other.id }

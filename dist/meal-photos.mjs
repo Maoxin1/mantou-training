@@ -37,12 +37,12 @@ export async function compressPhoto(file){
   if(!blob||blob.size>PHOTO_LIMIT)throw Error('照片压缩失败，请换一张照片');
   return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(Error('照片读取失败'));reader.readAsDataURL(blob);});
 }
-export function mealPhotoSection(){return `<section class="meal-section"><div class="row"><b>用照片记一餐</b><button class="inline" id="retryPhotos" type="button">同步照片</button></div><p class="hint" id="photoStatus" role="status">正在读取本机照片…</p><div class="meal-tabs" role="group" aria-label="餐次">${Object.entries(MEALS).map(([k,v])=>`<button type="button" data-meal="${k}" aria-pressed="${k==='breakfast'}">${v}</button>`).join('')}</div><div id="mealGallery" class="meal-gallery"></div><div class="journal-actions"><label class="btn secondary file-label">拍照<input id="mealCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label><label class="btn secondary file-label">选照片<input id="mealFile" type="file" accept="image/jpeg,image/png,image/webp"></label></div><p class="hint">餐前整餐照；包装食品可另拍标签。每天最多12张。照片仅是参考，吃掉的份量请在下方补充。</p><div id="mealAmounts"></div></section>`;}
+export function mealPhotoSection(){return `<section class="meal-section"><div class="row"><b>用照片记一餐</b><button class="inline" id="retryPhotos" type="button">同步照片</button></div><p class="hint" id="photoStatus" role="status">正在读取本机照片…</p><div class="meal-tabs" role="group" aria-label="餐次">${Object.entries(MEALS).map(([k,v])=>`<button type="button" data-meal="${k}" aria-pressed="${k==='breakfast'}">${v}</button>`).join('')}</div><div id="mealGallery" class="meal-gallery"></div><div class="journal-actions"><label class="btn secondary file-label">拍照<input id="mealCamera" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"></label><label class="btn secondary file-label">选照片<input id="mealFile" type="file" accept="image/jpeg,image/png,image/webp"></label></div><div id="mealAmounts"></div><details><summary>拍照与份量说明</summary><p>餐前拍整餐，包装食品可另拍标签。每天最多12张。照片仅作参考，请补充实际吃掉的份量。</p></details></section>`;}
 export function bindMealPhotos({date,getFields,saveFields,notify}){
-  const owner=mealOwner(),s=mealStore(owner);let selected='breakfast',busy=false,disposed=false;
+  const owner=mealOwner(),s=mealStore(owner);let selected='breakfast',busy=false,disposed=false,synced=false,lastError='';
   activeDate=date;const status=document.getElementById('photoStatus'),gallery=document.getElementById('mealGallery'),amounts=document.getElementById('mealAmounts');
   const valid=()=>!disposed&&status.isConnected&&mealOwner()===owner;
-  const fail=e=>{if(valid())status.textContent=e.message||'照片操作失败，本机副本保留';};
+  const fail=e=>{if(valid()){lastError=e.message||'照片操作失败，本机副本保留';status.textContent=lastError;}};
   async function draw(){
     const all=await s.all();if(!valid())return;gallery.replaceChildren();
     for(const p of all.filter(p=>p.date===date&&p.meal===selected&&!p.deleted)){
@@ -53,7 +53,7 @@ export function bindMealPhotos({date,getFields,saveFields,notify}){
       figure.append(view,caption,button);gallery.append(figure);
     }
     const n=all.filter(p=>p.pending).length;
-    status.textContent=owner==='guest'?'未登录：照片只保存在此设备；登录后可在这里主动迁入。':!navigator.onLine?`离线：照片保存在此设备${n?'，'+n+'项待同步':''}`:n?`${n}项照片变更待同步`:'本机照片已保存 · 联网同步后其他设备可见';
+    status.textContent=lastError||(owner==='guest'?'未登录：照片只保存在此设备；登录后可在这里主动迁入。':!navigator.onLine?`离线：照片保存在此设备${n?'，'+n+'项待同步':''}`:n?`${n}项照片变更待同步`:synced?'照片已同步；其他设备打开同一天即可查看':'本机照片已保存 · 联网同步后其他设备可见');
     if(!gallery.children.length){const p=document.createElement('p');p.className='hint';p.textContent='这一餐还没有照片，也可以只写文字。';gallery.append(p);}
   }
   function drawAmounts(){
@@ -65,12 +65,12 @@ export function bindMealPhotos({date,getFields,saveFields,notify}){
       control.value=f[key]||'';control.oninput=()=>{if(valid())saveFields({[key]:control.value});};label.append(control);amounts.append(label);
     }
   }
-  async function refresh(){if(!valid())return;try{await syncPhotos(date,owner);await draw();if(valid()&&owner!=='guest'&&navigator.onLine)status.textContent='照片已同步；其他设备打开同一天即可查看';}catch(e){fail(e);}}
+  async function refresh(){if(!valid())return;try{await syncPhotos(date,owner);if(!valid())return;lastError='';synced=owner!=='guest'&&navigator.onLine;await draw();}catch(e){fail(e);}}
   for(const b of document.querySelectorAll('[data-meal]'))b.onclick=()=>{selected=b.dataset.meal;document.querySelectorAll('[data-meal]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));drawAmounts();draw().catch(fail);};
   for(const input of [document.getElementById('mealCamera'),document.getElementById('mealFile')])input.onchange=async()=>{
     const file=input.files[0],meal=selected;input.value='';if(!file||busy||!valid())return;busy=true;
     const uploads=[document.getElementById('mealCamera'),document.getElementById('mealFile')];uploads.forEach(x=>x.disabled=true);
-    try{status.textContent='正在压缩并保存照片…';const data=await compressPhoto(file);if(!valid())throw Error('页面或账号已切换，请重新添加照片');await s.add({id:crypto.randomUUID(),date,meal,data});saveFields({date});navigator.storage?.persist?.().catch(()=>{});await draw();await refresh();}catch(e){fail(e);notify(e.message);}finally{busy=false;uploads.forEach(x=>x.disabled=false);}
+    try{lastError='';status.textContent='正在压缩并保存照片…';const data=await compressPhoto(file);if(!valid())throw Error('页面或账号已切换，请重新添加照片');await s.add({id:crypto.randomUUID(),date,meal,data});saveFields({date});navigator.storage?.persist?.().catch(()=>{});await draw();await refresh();}catch(e){fail(e);notify(e.message);}finally{busy=false;uploads.forEach(x=>x.disabled=false);}
   };
   document.getElementById('retryPhotos').onclick=refresh;
   const listener=()=>{if(valid())draw().catch(fail);else dispose();};
