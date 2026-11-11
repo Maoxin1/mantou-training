@@ -37,10 +37,14 @@ try{
   await page.goto(url);await page.locator('#todayFeedback').waitFor();await page.evaluate(()=>navigator.serviceWorker.ready.then(()=>true));
   await page.locator('#todayFeedback').click();await page.locator('[data-meal=lunch]').click();
   const image=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=640;c.height=480;const x=c.getContext('2d');x.fillStyle='#f4d9b1';x.fillRect(0,0,640,480);x.fillStyle='#537753';x.fillRect(80,80,250,250);return c.toDataURL('image/jpeg').split(',')[1];});
+  // A previous refresh may report synchronization while the newly selected file
+  // is still decoding. Inject that ordering; status text alone is not completion.
+  await page.evaluate(()=>{const decode=window.createImageBitmap;let first=true;window.createImageBitmap=async(...args)=>{if(first){first=false;await new Promise(resolve=>setTimeout(resolve,1000));}return decode(...args);};});
+  await page.locator('#retryPhotos').click();
   await page.locator('#mealFile').setInputFiles({name:'meal.jpg',mimeType:'image/jpeg',buffer:Buffer.from(image,'base64')});
+  await page.waitForFunction(()=>!document.getElementById('mealFile').disabled);
   await page.getByText('照片已同步；其他设备打开同一天即可查看',{exact:true}).waitFor();
   assert.equal(await page.locator('#mealGallery img').count(),1);
-  await page.waitForFunction(()=>!document.getElementById('mealFile').disabled);
   await page.click('[data-meal=breakfast]');
   await page.locator('#mealGallery').getByText('这一餐还没有照片，也可以只写文字。',{exact:true}).waitFor();
   assert.equal(await page.locator('#photoStatus').innerText(),'照片已同步；其他设备打开同一天即可查看','T05-B01: switching meals must retain confirmed sync status');
