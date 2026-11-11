@@ -40,15 +40,17 @@ try{
   // A previous refresh may report synchronization while the newly selected file
   // is still decoding. Inject that ordering; status text alone is not completion.
   await page.evaluate(()=>{const decode=window.createImageBitmap;let first=true;window.createImageBitmap=async(...args)=>{if(first){first=false;await new Promise(resolve=>setTimeout(resolve,1000));}return decode(...args);};});
+  await page.locator('#mealPhotoDetails > summary').click();
   await page.locator('#retryPhotos').click();
   await page.locator('#mealFile').setInputFiles({name:'meal.jpg',mimeType:'image/jpeg',buffer:Buffer.from(image,'base64')});
   await page.waitForFunction(()=>!document.getElementById('mealFile').disabled);
   await page.getByText('照片已同步；其他设备打开同一天即可查看',{exact:true}).waitFor();
   assert.equal(await page.locator('#mealGallery img').count(),1);
   await page.click('[data-meal=breakfast]');
-  await page.locator('#mealGallery').getByText('这一餐还没有照片，也可以只写文字。',{exact:true}).waitFor();
+  await page.locator('#mealGallery img').waitFor({state:'detached'});
   assert.equal(await page.locator('#photoStatus').innerText(),'照片已同步；其他设备打开同一天即可查看','T05-B01: switching meals must retain confirmed sync status');
   await page.click('[data-meal=lunch]');
+  await page.locator('#mealPortionDetails > summary').click();
   await page.locator('#mealAmounts input').fill('剩半碗饭');await page.locator('#mealAmounts select').selectOption('part');
   await context.setOffline(true);
   await page.locator('[data-meal=dinner]').click();await page.locator('#mealFile').setInputFiles({name:'offline.jpg',mimeType:'image/jpeg',buffer:Buffer.from(image,'base64')});
@@ -58,7 +60,7 @@ try{
   assert(await page.evaluate(async()=>{const {mealStore}=await import('/meal-photos.mjs');return (await mealStore().all()).some(p=>p.meal==='dinner'&&!p.deleted&&p.pending);}));
   await page.locator('#mealGallery img').waitFor();await page.locator('#closeDialog').click();await page.reload();await page.locator('#todayFeedback').click();await page.locator('[data-meal=dinner]').click();await page.locator('#mealGallery img').waitFor();
   assert.match(await page.locator('#photoStatus').innerText(),/离线/);
-  await context.setOffline(false);await page.locator('#retryPhotos').click();await page.getByText('照片已同步；其他设备打开同一天即可查看',{exact:true}).waitFor();await page.locator('#closeDialog').click();
+  await context.setOffline(false);await page.locator('#mealPhotoDetails > summary').click();await page.locator('#retryPhotos').click();await page.getByText('照片已同步；其他设备打开同一天即可查看',{exact:true}).waitFor();await page.locator('#closeDialog').click();
   await page.waitForTimeout(1800);
   const second=await browser.newContext({viewport:{width:1024,height:768}});await second.addInitScript(({user})=>localStorage.setItem('mantou-training-account',JSON.stringify({id:user,email:'synthetic@example.test'})),{user});
   const tablet=await second.newPage();tablet.on('pageerror',e=>errors.push(e.message));await tablet.goto(url);await tablet.locator('#todayFeedback').click();await tablet.locator('[data-meal=lunch]').click();await tablet.locator('#mealGallery img').waitFor();assert.equal(await tablet.locator('#mealAmounts input').inputValue(),'剩半碗饭');

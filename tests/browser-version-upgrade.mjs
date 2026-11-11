@@ -201,9 +201,14 @@ try {
   }
   const lowerTargets = state => Object.values(state.journal.entries)
     .filter(e => e.kind === 'session' && !e.fields.workout).map(e => e.fields.plan[0].min).sort((a, b) => a - b);
-  async function openMeal(page, meal) {
+  async function openMeal(page, meal, {daily=false}={}) {
     await page.locator('#todayFeedback').click();
+    if(daily&&await page.locator('#moreDaily').count())await page.locator('#moreDaily').click();
     await page.locator('[data-meal="' + meal + '"]').click();
+  }
+  async function openTrainingFeedback(page) {
+    await page.locator('#beginSession').click();
+    if(await page.locator('#backSession').count())await page.locator('#backSession').click();
   }
   async function savePhoto(page, meal, bytes, pending) {
     await page.locator('#mealFile').setInputFiles({ name: meal + '.jpg', mimeType: 'image/jpeg', buffer: bytes });
@@ -225,7 +230,7 @@ try {
   await login(phone);
   await phone.locator('#startTrial').click();
   await phone.locator('#startTrialForm button[type="submit"]').click();
-  await phone.locator('#beginSession').click();
+  await openTrainingFeedback(phone);
   await phone.locator('[data-field="notes"]').fill('生产旧版训练样例');
   await close(phone);
   const first = oldLocal((await envelope(phone)).local);
@@ -262,14 +267,14 @@ try {
   await tablet.locator('#beginSession').waitFor();
   assert.equal(oldLocal((await envelope(tablet)).local).fields.notes, first.fields.notes);
   await tablet.context().setOffline(true);
-  await tablet.locator('#beginSession').click();
+  await openTrainingFeedback(tablet);
   await tablet.locator('#recoveryFields summary').click();
   await tablet.locator('[data-field="recoveryNotes"]').fill('旧版平板离线补记');
   await close(tablet);
   assert.equal((await envelope(tablet)).pending, true);
 
   await phone.context().setOffline(true);
-  await openMeal(phone, 'dinner');
+  await openMeal(phone, 'dinner', {daily:true});
   await phone.locator('[data-field="notes"]').fill('更新前未同步的每日记录');
   await savePhoto(phone, 'dinner', image, true);
   await close(phone);
@@ -312,6 +317,7 @@ try {
   pauseSync = false;
   await syncNow(phone);
   await openMeal(phone, 'dinner');
+  if(await phone.locator('#mealPhotoDetails > summary').count())await phone.locator('#mealPhotoDetails > summary').click();
   await phone.locator('#retryPhotos').click();
   await phone.getByText('照片已同步；其他设备打开同一天即可查看', { exact: true }).waitFor();
   await close(phone);
@@ -346,7 +352,7 @@ try {
 
   // Older unsupported clients must stop before PUT. 2.4.0 already understands this schema.
   await tablet.context().setOffline(true);
-  await tablet.locator('#beginSession').click();
+  await openTrainingFeedback(tablet);
   await tablet.locator('[data-field="notes"]').fill('旧版等待更新时补记');
   await close(tablet);
   const pendingOld = await envelope(tablet);
@@ -371,7 +377,7 @@ try {
     assert.equal(active((await envelope(tablet)).local).id,phase.id);
     assert.equal((await envelope(tablet)).local.journal.entries[first.id].fields.notes,'旧版等待更新时补记');
     assert.deepEqual((await envelope(tablet)).local,(await envelope(phone)).local);
-    console.log('PASS T05-M06: schema-compatible 2.4.0 merges the new phase with its pending feedback');
+    console.log(`PASS schema-compatible ${oldVersion} merges the new phase with its pending feedback`);
   }
 
   const otherResponse = await fetch(origin + '/api/sync', {

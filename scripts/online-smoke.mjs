@@ -23,6 +23,7 @@ try{
   await page.locator('#startTrial').click();await page.locator('#startTrialForm button').click();await page.locator('#todayFeedback').click();await page.locator('[data-meal=lunch]').click();
   const image=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=400;c.height=300;const x=c.getContext('2d');x.fillStyle='#58745c';x.fillRect(0,0,400,300);return c.toDataURL('image/jpeg').split(',')[1];});
   await page.locator('#mealFile').setInputFiles({name:'acceptance-test.jpg',mimeType:'image/jpeg',buffer:Buffer.from(image,'base64')});await page.locator('#mealGallery img').waitFor();await page.waitForFunction(()=>!document.getElementById('mealFile').disabled);
+  if(await page.locator('#mealPortionDetails > summary').count())await page.locator('#mealPortionDetails > summary').click();
   await page.locator('#mealAmounts input').fill('浏览器验收测试，仅在隔离的未登录空间');
   await page.locator('#closeDialog').click();await context.setOffline(true);await page.reload();await page.locator('#todayFeedback').click();await page.locator('[data-meal=lunch]').click();await page.locator('#mealGallery img').waitFor();assert.equal(await page.locator('#mealAmounts input').inputValue(),'浏览器验收测试，仅在隔离的未登录空间');assert.deepEqual(errors,[]);
   await mkdir('test-output',{recursive:true});await page.screenshot({path:'test-output/online-meal.png'});
