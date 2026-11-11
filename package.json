@@ -11,7 +11,8 @@
     "test:update": "node scripts/online-update.mjs",
     "start": "node scripts/serve.mjs",
     "build": "node scripts/build.mjs",
-    "test:isolation": "node tests/api-account-isolation.mjs"
+    "test:isolation": "node tests/api-account-isolation.mjs",
+    "test:managed-isolation": "node tests/browser-managed-isolation.mjs"
   },
   "engines": {
     "node": ">=22"

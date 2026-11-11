@@ -32,6 +32,8 @@ TRAIN-05 增加 `tests/browser-focus.mjs`，已纳入 `npm run test:browser`。`
 
 `node scripts/prepare-static-preview.mjs <仓库外全新目录>` 生成无账号、无函数的 Vercel Build Output，适用于触控验收，不能代替账号同步验收。`TRAINING_BASE_URL=<该预览>` 可运行 `tests/browser-focus.mjs`、`tests/browser-strength-plan.mjs`、`tests/browser-preview-proof.mjs`。后者校验线上资产与本地一致、空认证配置、无同步API和安全头；它当前明确检查正式站仍为2.4.0，正式发布后需按新的基线调整预期，不能用旧断言掩盖已发布状态。
 
+`TRAINING_MANAGED_CONFIG=<仓库外私有JSON> npm run test:managed-isolation` 是显式启用的托管身份验收，不进入默认CI。配置需有 `projectId`、`branchId`、`authUrl`、`databaseUrl`；脚本只允许既有授权 staging 项目和精确主机，不回退生产。每次运行会在隔离服务注册两个合成密码账号并写测试记录／餐照，账号与数据保留，清理另行安排。验证码路由被拦截，密码和会话只在内存；日志只输出测试UUID与脱敏结论。此流程用实际SDK、托管会话、JWKS及实际SQL，覆盖切号和导出；不会因此证明邮箱OTP表单／邮件投递或生产配置已通过。请勿提交私有配置或浏览器storageState。
+
 ## 源码与构建产物
 
 当前 `dist/` 包含手写源码，仅 `auth-sdk.mjs`、`cloud-config.mjs`、`meal-zip.mjs` 为忽略跟踪的生成文件。不要将整个 `dist/` 当作可删除的构建目录；修改这些生成文件对应的入口时，编辑 `src/` 或 `scripts/build.mjs`。

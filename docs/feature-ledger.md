@@ -8,7 +8,7 @@
 | TRAIN-02 | 长期体态／器械与低负担复盘；本轮仅采纳 TRAIN-04 的明确部分 | 不把新指标、照片估算热量或体态预测顺带纳入本轮 |
 | TRAIN-03 | 2.3.8 已发布：手动三星睡眠 ZIP 批量预览、查重、显式修订 | [PR #6](https://github.com/Maoxin1/mantou-training/pull/6)。自动手表连接暂停，手动导入持续使用 |
 | TRAIN-04 | 2.4.0 已发布，工程、双端升级／同步和手机离线实机通过；首次实机建场待使用反馈 | [PR #8](https://github.com/Maoxin1/mantou-training/pull/8) · [规范与范围](specs/train-04-strength.md) · [测试矩阵与对抗审查](specs/train-04-tests.md) |
-| TRAIN-05 | 2.4.1 候选：多代理复核、自动回归、手机／平板四条路径和大字号实机通过；待托管双账号验收，未发布正式版 | [验收预览](https://mantou-training-offline-ijh7c8yh8-mantous-projects-af7e7067.vercel.app) · [规范与范围](specs/train-05-focus.md) · [测试矩阵](specs/train-05-tests.md)。托管真实双账号及实例证据边界另列，不冒充已验收 |
+| TRAIN-05 | 2.4.1 发布准备：自动回归、手机／平板及大字号、真实托管双账号数据／切号／导出隔离通过；本人已授权发布 | [PR #10](https://github.com/Maoxin1/mantou-training/pull/10) · [验收预览](https://mantou-training-offline-ijh7c8yh8-mantous-projects-af7e7067.vercel.app) · [规范](specs/train-05-focus.md) · [矩阵](specs/train-05-tests.md)。本轮A/B OTP投递及正式站更新后验收仍单列 |
 
 TRAIN-05 采纳 UI 审查建议，优先常用路径；保持已采纳 TRAIN-01/03/04 的数据与确认语义。轻量统一原图标属于新一轮 Could，不回写 TRAIN-04 当时的 Won't。完整品牌重构、自动建议、更多传感器和照片热量仍延期，原因是当前目标为减噪与可靠使用。
 
