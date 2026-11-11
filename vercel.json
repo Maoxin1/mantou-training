@@ -42,5 +42,10 @@
         }
       ]
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "feat/train-05-focus": false
+    }
+  }
 }
