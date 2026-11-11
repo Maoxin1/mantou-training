@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {mkdir} from 'node:fs/promises';
 import {chromium} from 'playwright';
-const port='4196',base=`http://127.0.0.1:${port}/`;
-const server=spawn(process.execPath,['scripts/serve.mjs'],{env:{...process.env,PORT:port},stdio:['ignore','pipe','inherit']});
+const port='4196',base=process.env.TRAINING_BASE_URL||`http://127.0.0.1:${port}/`;
+const server=process.env.TRAINING_BASE_URL?null:spawn(process.execPath,['scripts/serve.mjs'],{env:{...process.env,PORT:port},stdio:['ignore','pipe','inherit']});
 let browser;
 try{
-  await new Promise((resolve,reject)=>{server.stdout.once('data',resolve);server.once('error',reject);});
+  if(server)await new Promise((resolve,reject)=>{server.stdout.once('data',resolve);server.once('error',reject);});
   browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||(process.platform==='win32'?'msedge':undefined),headless:true});
   const context=await browser.newContext({viewport:{width:390,height:844}}),page=await context.newPage(),errors=[];
   page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(4000);
@@ -113,4 +113,4 @@ try{
   await page.evaluate(()=>window.focusFixture.renderPlan());
   assert.equal(await page.locator('#adjustTrial').isVisible(),true,'T05-B02: background render preserves an open plan menu');
   assert.deepEqual(errors,[]);
-}finally{await browser?.close();server.kill();}
+}finally{await browser?.close();server?.kill();}

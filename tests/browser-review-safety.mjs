@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {chromium} from 'playwright';
+const port='4203';
+const server=spawn(process.execPath,['scripts/serve.mjs'],{env:{...process.env,PORT:port},stdio:['ignore','pipe','inherit']});
+let browser;
+try{
+  await new Promise((resolve,reject)=>{server.stdout.once('data',resolve);server.once('error',reject);server.once('exit',code=>reject(Error('Server exited '+code)));});
+  browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||(process.platform==='win32'?'msedge':undefined),headless:true});
+  const page=await browser.newPage({viewport:{width:390,height:844}});
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await page.evaluate(async()=>{
+    const {fresh}=await import('/engine.mjs');
+    const {startTrial,startSession,writeEntry,exerciseEntryId,blankRows,today}=await import('/journal.mjs');
+    const s=fresh();startTrial(s,{start:today(),routine:'strength3-v1'});
+    const sid=startSession(s,{workout:'A'}),plan=s.journal.entries[sid].fields.plan[0],rows=blankRows(plan);
+    rows[0]={...rows[0],left:8,right:null,load:'5kg',rir:'unknown',quality:'pain',variant:'临时用弹力带'};
+    writeEntry(s,exerciseEntryId(sid,plan.id),'exercise',{sessionId:sid,exerciseId:plan.id,rows,notes:'右肩刺痛 <img src=x onerror="window.reviewInjected=true">'});
+    writeEntry(s,sid,'session',{pain:'no',painNotes:'右肩不适',recoveryStatus:'normal',recoveryNotes:'右肩痛持续到次日',reason:'只完成一侧'});
+    writeEntry(s,'daily:'+today(),'daily',{date:today(),sleepQuality:'poor',breakfast:'鸡蛋和红薯',snackNote:'运动后加了一杯奶',snackAmount:'all'});
+    localStorage.setItem('mantou-training-v1',JSON.stringify(s));
+  });
+  await page.reload();const before=await page.evaluate(()=>localStorage.getItem('mantou-training-v1'));
+  await page.click('#quickReview');
+  const review=page.locator('#reviewSummary');
+  assert.match(await review.innerText(),/待优先复核的不适记录/,'row pain must remain visible before expanding sessions');
+  await review.locator('details').first().locator('summary').click();
+  await review.locator('details').last().locator('summary').click();
+  const text=await review.innerText();
+  for(const fact of ['右肩刺痛','右肩不适','右肩痛持续到次日','只完成一侧','临时用弹力带','疼痛／明显不适','不确定','右 未填','鸡蛋和红薯','运动后加了一杯奶','入睡慢／夜醒／恢复差'])assert(text.includes(fact),`readable review retains ${fact}`);
+  assert.match(text,/早餐：.*鸡蛋和红薯.*实际食用：未填写/,'old meal text and missing portion are distinct');
+  assert.equal(await review.locator('img').count(),0,'notes are text');
+  assert.equal(await page.evaluate(()=>window.reviewInjected),undefined);
+  assert.equal(await page.locator('#reviewDetails').getAttribute('open'),null,'raw text remains optional');
+  await page.click('#closeDialog');
+  assert.equal(await page.evaluate(()=>localStorage.getItem('mantou-training-v1')),before,'review is read only');
+  await page.evaluate(()=>{
+    const s=JSON.parse(localStorage.getItem('mantou-training-v1'));
+    const session=Object.values(s.journal.entries).find(e=>e.kind==='session');
+    session.fields.pain='';session.fields.painNotes='';session.fields.recoveryStatus='';
+    const log=Object.values(s.journal.entries).find(e=>e.kind==='exercise');
+    log.fields.rows[0].left=null;
+    localStorage.setItem('mantou-training-v1',JSON.stringify(s));
+  });
+  await page.reload();await page.click('#quickReview');
+  assert.match(await review.innerText(),/待优先复核的不适记录/,'pain without counts is still visible');
+  assert.match(await review.locator('.review-facts').innerText(),/0\s*场有次数记录/,'pain alone does not imply actual repetitions');
+  assert.match(await review.innerText(),/1 场疼痛或恢复反馈未填/);
+  await review.locator('details').first().locator('summary').click();
+  assert.match(await review.innerText(),/疼痛／明显不适/,'row quality remains available when every count is empty');
+  console.log('PASS readable review retains discomfort, variants, incomplete sides, old meal text and sleep without mutation');
+}finally{await browser?.close();server.kill();}

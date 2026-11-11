@@ -56,6 +56,21 @@ TDD证据：M01 初次 `trialSetRows=0`；M02 独立餐照仍有 sleepQuality �
 
 ## 结论
 
+### 2026-11-11 多代理复核与补充
+
+本人授权多代理协作后，请求 GPT-6 Astra 负责安全只读审查，GPT-6.1 Sol 负责功能／UX复核，主代理整合。安全代理未发现本轮新增可复现漏洞，独立重跑安全头2项通过；其余证据范围明确保留。
+
+UX复核确认 T05-B04：逐组 `quality=pain`、不适补充和实际版本在可读摘要中遗漏，某些组合只显示“无疼痛／恢复正常”；T05-B05：旧每日三餐正文、睡眠感受与加餐未进入可读摘要。“摘要”不是隐藏必要风险和原始反馈的理由。新增 `tests/browser-review-safety.mjs`：先因默认不适提示缺失失败，修复后通过。现在不适记录默认提示，逐场／每日按需展开保留事实；无次数的疼痛行不计成实际训练，仍能查看。新增脚本纳入常规浏览器回归，未新增健康评分或自动训练建议。
+
+线上验收预览采用 Vercel Build Output 静态包，明确 `AUTH_URL=""`，不包含 API functions、不连接账号数据库。项目通用 Preview 会继承正式环境，所以不直接把候选分支推送成有正式数据库连接的常规 Preview。未更改 Production 变量或正式域名；托管双账号验收仍单列。Vercel连接器未能访问该项目，使用既有CLI身份核对 team/project 后部署。
+
+- 复核修复后 `npm test` 106/106，`npm run test:browser` 8个脚本全部通过，包含新增复盘回归。
+- [静态验收预览](https://mantou-training-offline-ijh7c8yh8-mantous-projects-af7e7067.vercel.app)，部署 `dpl_DDy97xKdYGgiU7ExWdygFvgLiVr4`，target为Preview，无生产域名分配。
+- `TRAINING_BASE_URL=<预览> node tests/browser-focus.mjs` 与 `node tests/browser-strength-plan.mjs` 在线通过。覆盖四条路径、空值/0/未填单侧、真实HTTP CSP、窄屏/200%文字、快照、手动确认和离线重开。
+- `TRAINING_BASE_URL=<预览> node tests/browser-preview-proof.mjs` 通过：6个线上关键文件SHA256与本地一致，账号配置为空，`/api/sync` 为404，CSP/X-Frame-Options有效。正式站仍是2.4.0。普通Node直连在本机网络超时，使用浏览器网络重试成功；超时不计为产品失败或测试通过。
+- 独立代理只读核查与最小修复记录保留于本节；主代理已检查新增摘要代码并将回归纳入常规入口。没有要求用户为学习而独立诊断技术问题。
+- 手机／平板实机问题已发送，尚未收到结果，T05-M07保留待验收。静态预览不支持登录账号或验证跨设备同步，不能用于T05-M08。
+
 本地工程验收通过，整体为**部分通过／待实机与托管账号验收**，候选未发布。服务商已提供全区域认证修复声明且配置显示 Magic Link 关闭，证据变化见 maintenance.md；实例版本回读及具体历史公告映射仍未取得。
 
 学习复盘与软件验收分开：本轮选择减少路径和说明；依据是实际入口问题和保留回归；下次按真实操作反馈调整。示例：本地A/B令牌测试通过能证明应用接口的隔离条件，不能证明真实邮箱投递、共享设备缓存或部署者权限都已验证。无需用户答题才可完成工程检查。
