@@ -1,0 +1,24 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.mantou.sleep.bridge" android:versionCode="1" android:versionName="0.1">
+  <uses-sdk android:minSdkVersion="34" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.health.READ_SLEEP"/>
+  <application android:label="mantou 睡眠小工具" android:allowBackup="false" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+    <activity android:name=".MainActivity" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN"/>
+        <category android:name="android.intent.category.LAUNCHER"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="mantou-sleep" android:host="import" android:path="/sleep"/>
+      </intent-filter>
+    </activity>
+    <activity-alias android:name=".PermissionsUsage" android:targetActivity=".MainActivity" android:exported="true" android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+      <intent-filter>
+        <action android:name="android.intent.action.VIEW_PERMISSION_USAGE"/>
+        <category android:name="android.intent.category.HEALTH_PERMISSIONS"/>
+      </intent-filter>
+    </activity-alias>
+  </application>
+</manifest>

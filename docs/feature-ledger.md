@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | TRAIN-01 | 2.3.7 已发布：手动调整先预览，确认后仅影响新场次。沿用 T01-D01、T01-D08 | [PR #7](https://github.com/Maoxin1/mantou-training/pull/7)。自动评分、自动建议的门槛与可比性仍未定；跨设备同时确认和服务端提交后丢回包的完整验收仍另行跟踪 |
 | TRAIN-02 | 长期体态／器械与低负担复盘；本轮仅采纳 TRAIN-04 的明确部分 | 不把新指标、照片估算热量或体态预测顺带纳入本轮 |
-| TRAIN-03 | 2.3.8 的三星 ZIP 导入已发布。2.4.4 候选新增 Health Connect JSON，已完成本地和隔离双端验证 | [PR #6](https://github.com/Maoxin1/mantou-training/pull/6) · [Health Connect 规范与验收](specs/train-03-health-connect.md)。真实设备、正式账号及后台自动导出仍待验证 |
+| TRAIN-03 | 2.3.8 的三星 ZIP 导入已发布。2.4.4 候选支持 Health Connect JSON 和安卓一键读取，有冲突的记录保留待核对 | [PR #6](https://github.com/Maoxin1/mantou-training/pull/6) · [Health Connect 规范与验收](specs/train-03-health-connect.md) · [一键导入](specs/train-03-one-tap-sleep.md)。真机完整链路、正式账号及后台自动导出仍待验证 |
 | TRAIN-04 | 2.4.0 已发布，工程、双端升级／同步和手机离线实机通过；首次实机建场待使用反馈 | [PR #8](https://github.com/Maoxin1/mantou-training/pull/8) · [规范与范围](specs/train-04-strength.md) · [测试矩阵与对抗审查](specs/train-04-tests.md) |
 | TRAIN-05 | 2.4.1 已上线：本轮界面和升级验收通过；手机／平板旧记录餐照、同步及手机离线获本人确认；安全矩阵M08保留部分通过 | [PR #10](https://github.com/Maoxin1/mantou-training/pull/10) · [发布部署](https://vercel.com/mantous-projects-af7e7067/mantou-training-offline/ABsiNbKLk7A6V9Qdz5vfEZxxDdGh) · [规范](specs/train-05-focus.md) · [矩阵](specs/train-05-tests.md)。本轮A/B OTP投递、实例回读与运营边界仍单列 |
 

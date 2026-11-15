@@ -1,6 +1,7 @@
 import {mountJournal} from './journal-ui.mjs';
 import {trialMarkdown,activeTrial} from './journal.mjs';
-import {mountCloud} from './cloud.mjs';
+import {mountCloud,mealOwner} from './cloud.mjs';
+import {mountOneTapSleep} from './one-tap-sleep.mjs';
 import {mountInstallCard} from './pwa.mjs';
 import {LocalState} from './local-state.mjs';
 import {encodeBackup} from './archive-core.mjs';
@@ -78,3 +79,8 @@ window.addEventListener('training:pwa-status',e=>{pwaMessage=e.detail;statusLine
 document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{page=b.dataset.page;render();window.scrollTo(0,0)});document.querySelector('.brand').onclick=e=>{e.preventDefault();page='plan';render();window.scrollTo(0,0)};$('closeDialog').onclick=()=>$('exerciseDialog').close();$('exerciseDialog').addEventListener('click',e=>{if(e.target===$('exerciseDialog')){const r=e.target.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)e.target.close()}});render();
 
 cloud=mountCloud({guest:()=>{try{return validateBackup(JSON.parse(localStorage.getItem(KEY)))}catch{return fresh()}},apply:(next,account)=>{state=validateBackup(next);$('saveStatus').textContent=account?'账号数据 · 本机缓存':'设备内保存';render();},notify});
+mountOneTapSleep({
+  currentScope:mealOwner,editableScope:()=>cloud.editableScope(),getState:()=>state,transact,notify,
+  showRecords:()=>{page='history';render();},
+  renderRecords:render
+});

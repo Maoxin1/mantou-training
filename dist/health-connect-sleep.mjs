@@ -73,11 +73,11 @@ export function parseHealthConnect(text) {
 const SUMMARY_FIELDS = ['source','id','origin','start','end','startOffsetSeconds','endOffsetSeconds',
   'lastModified','date','intervalMinutes','actualMinutes'];
 
-export function validHealthConnectSleep(r) {
+export function validHealthConnectSleep(r,{allowUndated=false}={}) {
   if (!object(r) || Object.keys(r).length !== SUMMARY_FIELDS.length ||
       !SUMMARY_FIELDS.every(k => Object.hasOwn(r,k)) || r.source !== SOURCE || !validId(r.id) ||
       !validOrigin(r.origin) || !validOffset(r.startOffsetSeconds) ||
-      !validOffset(r.endOffsetSeconds) || r.endOffsetSeconds === null) return false;
+      !validOffset(r.endOffsetSeconds) || (!allowUndated && r.endOffsetSeconds === null)) return false;
   const start = readInstant(r.start), end = readInstant(r.end), modified = readInstant(r.lastModified);
   return end > start && end-start <= DAY && Number.isFinite(modified) &&
     r.start === iso(start) && r.end === iso(end) && r.lastModified === iso(modified) &&
