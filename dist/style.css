@@ -125,6 +125,19 @@ header { height: auto; min-height: 68px; gap: 4px 12px; flex-wrap: wrap; }
 .review-metrics .review-facts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 0; margin: 0; }
 .review-metrics .review-facts p { padding: 0 6px; }
 .review-metrics .review-facts p + p { border-left: 1px solid var(--training-border); }
+.exercise-demo { padding: 14px; margin: 12px 0; border: 1px solid var(--training-border); border-radius: 14px; background: #f1f6fd; }
+.exercise-demo h3 { margin: 0 0 10px; font-size: 1.05rem; line-height: 1.4; }
+.exercise-demo h3 span { display: block; font-size: .875rem; font-weight: 500; color: #435a75; }
+.exercise-demo-poses { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.exercise-demo-poses figure { margin: 0; padding: 4px 2px 8px; border-radius: 10px; text-align: center; background: #fff; }
+.exercise-demo canvas { display: block; width: 100%; height: auto; max-width: 152px; margin: 0 auto; }
+.exercise-demo figcaption { padding: 0 3px; font-size: .875rem; color: #314b68; }
+.exercise-demo-player { min-height: 160px; display: grid; place-items: center; align-content: center; margin: 0; border-radius: 10px; background: #fff; }
+.exercise-demo-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0 12px; margin: 7px 0 5px; }
+.exercise-demo-actions a { display: inline-flex; align-items: center; min-height: 44px; color: #245784; font-size: .875rem; }
+#dialogContent .exercise-demo-actions .btn { width: auto; min-height: 44px; margin: 0; padding: 8px 12px; }
+.exercise-demo p { margin: 6px 0 0; font-size: .9375rem; }
+@media (prefers-reduced-motion:reduce) { .exercise-demo-play { display: none; } }
 @media (min-width:760px) {
   .training-layout { grid-template-columns: minmax(0,1fr) minmax(0,1fr); align-items: start; gap: 22px; }
 }
