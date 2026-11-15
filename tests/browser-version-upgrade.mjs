@@ -183,6 +183,9 @@ try {
   const oldLocal = state => Object.values(state.journal.entries).find(e => e.kind === 'session');
   const active = state => state.journal.trials[state.journal.settings.activeTrial];
   const firstNight = '2020-01-02', secondNight = '2020-01-03';
+  const healthNight = '2020-01-04';
+  let importedHealthNight;
+  const readHealthSleep = state => state.journal.entries['daily:' + healthNight]?.fields.healthConnectSleep;
   const sleepRecord = (state, date) => state.journal.entries['daily:' + date]?.fields.samsungSleep;
   const zip = { name: 'synthetic-sleep.zip', mimeType: 'application/zip', buffer: Buffer.from(zipSync({
     'com.samsung.shealth.sleep.20200103.csv': strToU8(
@@ -314,6 +317,25 @@ try {
   assert.equal(sleepRecord((await envelope(phone)).local, secondNight).actualMinutes, 60);
   console.log(`PASS ${oldVersion} → ${newVersion} preserves the account, pending writes and old sleep; only the new night is added`);
 
+  if(newFiles.has('health-connect-sleep.mjs')){
+    await phone.locator('#importHealthSleep').click();
+    const json = JSON.stringify({format:'mantou-health-connect-sleep',version:1,complete:true,records:[
+      {id:'rehearsal-health-sleep',origin:'nl.appyhapps.healthsync',start:'2020-01-03T22:00:00Z',
+        end:'2020-01-04T00:00:00Z',startOffsetSeconds:28800,endOffsetSeconds:28800,
+        lastModified:'2020-01-04T01:00:00Z',stages:[]}
+    ]});
+    const beforePreview = await envelope(phone);
+    await phone.locator('#healthSleepFile').setInputFiles({
+      name:'synthetic-health-sleep.json',mimeType:'application/json',buffer:Buffer.from(json)
+    });
+    await phone.locator('#saveHealthSleep').waitFor();
+    assert.deepEqual(await envelope(phone),beforePreview);
+    await phone.locator('#saveHealthSleep').click();
+    await phone.locator('#healthSleepStatus').filter({hasText:'重复跳过 1 条'}).waitFor();
+    importedHealthNight=readHealthSleep((await envelope(phone)).local);
+    assert.equal(importedHealthNight.origin,'nl.appyhapps.healthsync');
+    await close(phone);
+  }
   pauseSync = false;
   await syncNow(phone);
   await openMeal(phone, 'dinner');
@@ -333,6 +355,7 @@ try {
   assert.equal(mixed.journal.entries[first.id].fields.recoveryNotes, '旧版平板离线补记');
   assert.deepEqual(sleepRecord(mixed, firstNight), oldNight);
   assert.equal(sleepRecord(mixed, secondNight).actualMinutes, 60);
+  if(importedHealthNight)assert.deepEqual(readHealthSleep(mixed),importedHealthNight,'old client retains Health Connect summary');
   assert(Object.values(mixed.journal.entries).some(e => e.fields.notes === '更新前未同步的每日记录'));
   await openMeal(tablet, 'dinner');
   await tablet.locator('#mealGallery img').waitFor();
@@ -348,6 +371,10 @@ try {
   assert.equal(stored.rows[0].user_id, user.id);
   assert.deepEqual(stored.rows[0].state, (await envelope(phone)).local);
   assert.equal((await db.query('SELECT object_key FROM training_meal_photos')).rows.length, 2);
+  if(importedHealthNight){
+    assert.deepEqual(readHealthSleep(stored.rows[0].state),importedHealthNight);
+    console.log('PASS isolated sync API and database preserve the Health Connect summary after an old client submits a pending edit');
+  }
   console.log('PASS mixed versions converge after reconnect; two sessions, two photos and both sleep nights persist');
 
   // Older unsupported clients must stop before PUT. 2.4.0 already understands this schema.
@@ -396,6 +423,12 @@ try {
   await tablet.context().setOffline(true);
   await tablet.reload();
   await tablet.locator('#beginSession').waitFor();
+  if(importedHealthNight){
+    await tablet.locator('[data-page="history"]').click();
+    await tablet.locator('#journalDate').fill(healthNight);
+    await tablet.getByText(/Health Sync · Health Connect/).waitFor();
+    await selectPlan(tablet);
+  }
   await openMeal(tablet, 'dinner');
   await tablet.locator('#mealGallery img').waitFor();
   assert.deepEqual(lowerTargets((await envelope(tablet)).local), [6, 7]);

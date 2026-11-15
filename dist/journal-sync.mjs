@@ -40,9 +40,10 @@ export function mergeJournal(base,left,right){
       const at=a.fieldUpdated?.[k]||a.updated,zt=z.fieldUpdated?.[k]||z.updated;
       const path=['entries',id,'fields',k],left=a.fields[k],right=z.fields[k];
       const sleep=k==='samsungSleep';
+      const healthConnect=k==='healthConnectSleep';
       if(sleep&&isNewerSleep(left,right))setJournalPath(merged,path,left);
       else if(sleep&&isNewerSleep(right,left))setJournalPath(merged,path,right);
-      else choose(path,old?.fields[k],left,right,`${a.fields.date||z.fields.date||'动作反馈'} · ${k==='rows'?'训练组次（请核对双方全部组次）':sleep?'三星睡眠（请核对双方记录）':k}`,left===undefined?undefined:at,right===undefined?undefined:zt,k==='rows'||(sleep&&!sameSleep(left,right)));
+      else choose(path,old?.fields[k],left,right,`${a.fields.date||z.fields.date||'动作反馈'} · ${k==='rows'?'训练组次（请核对双方全部组次）':sleep?'三星睡眠（请核对双方记录）':healthConnect?'Health Connect 睡眠（请核对双方记录）':k}`,left===undefined?undefined:at,right===undefined?undefined:zt,k==='rows'||healthConnect||(sleep&&!sameSleep(left,right)));
       const picked=merged.entries[id].fields[k];
       merged.entries[id].fieldUpdated[k]=same(picked,a.fields[k])&&!same(picked,z.fields[k])?at:same(picked,z.fields[k])&&!same(picked,a.fields[k])?zt:latestTimestamp([at,zt])||at;
     }
