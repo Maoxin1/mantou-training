@@ -1,16 +1,19 @@
 import {unzipSync,strFromU8} from './meal-zip.mjs';
 import {parseSleep,sleepLine,mergeSleepSegments,planSleepImport,sameSleep,includesOlderSleepPart} from './sleep-core.mjs';
-import {HEALTH_CONNECT_FILE_LIMIT,parseHealthConnect,healthConnectLine,planHealthConnectImport,
+import {HEALTH_CONNECT_FILE_LIMIT,parseHealthConnect,healthConnectLine,healthConnectPartsLine,planHealthConnectImport,
   conflictsWithHealthConnect,savedHealthConnectSpans} from './health-connect-sleep.mjs';
 import {dateOK,entry,plusDays,writeEntry,writeHealthConnectNights,today} from './journal.mjs';
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function sleepSection(s,date){
   const fields=entry(s,'daily:'+date)?.fields, samsung=fields?.samsungSleep, health=fields?.healthConnectSleep;
-  const note=samsung&&health?'<p class="warning">有两种来源的睡眠记录，请核对。两条记录分别显示。</p>':'';
+  const parts=fields?.healthConnectSleepParts;
+  const sources=[samsung,health,parts].filter(Boolean);
+  const note=sources.length>1?'<p class="warning">同日有多份睡眠记录，请核对。各份记录分别显示。</p>':'';
   const legacy=samsung&&!samsung.segments&&!Object.hasOwn(samsung,'groupId')?
     '<p class="hint">旧版单条导入：可能未包含同一晚的其他片段。可重新导入原 ZIP 核对完整性。</p>':'';
   return note+(samsung?`<p class="hint">${esc(sleepLine(samsung))}</p>`:'')+legacy+
-    (health?`<p class="hint">${esc(healthConnectLine(health))}</p>`:'');
+    (health?`<p class="hint">${esc(healthConnectLine(health))}</p>`:'')+
+    (parts?`<details class="hint"><summary>${esc(healthConnectPartsLine(parts))}</summary>${parts.map(part=>`<p>${esc(healthConnectLine(part))}</p>`).join('')}</details>`:'');
 }
 
 export function bindHealthConnectImport({state,save,modal,notify,refresh}){
