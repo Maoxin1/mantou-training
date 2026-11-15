@@ -1,5 +1,7 @@
-import {validHealthConnectSleep,planHealthConnectImport,healthConnectLine} from './health-connect-sleep.mjs';
-import {today,writeHealthConnectNights} from './journal.mjs';
+import {validHealthConnectSleep,planHealthConnectImport,healthConnectLine,healthConnectPartsLine,
+  overlappingSavedSleep,sameHealthConnectSleep,summarizeSleepParts} from './health-connect-sleep.mjs';
+import {today,writeHealthConnectNights,writeReviewedSleepParts} from './journal.mjs';
+import {sleepLine} from './sleep-core.mjs';
 
 const HANDOFF_MS=180000;
 const B64=/^[A-Za-z0-9_-]+$/;
@@ -47,7 +49,7 @@ export function applyOneTapSleep(state,records,asOf=today()){
     saved:newNights.length,
     skipped:preview.filter(item=>item.status==='same').length,
     review:preview.filter(item=>item.status==='review').map(({record,reason})=>({
-      date:record.date, reason, detail:healthConnectLine(record)
+      date:record.date, reason, detail:healthConnectLine(record), record
     }))
   };
 }
@@ -55,16 +57,119 @@ export function applyOneTapSleep(state,records,asOf=today()){
 const REQUEST='mantou-training-sleep-request';
 const RETURN='mantou-training-sleep-return';
 const LAST='mantou-training-sleep-last';
+const IGNORED='mantou-training-sleep-kept';
 const RESULT_HASH='#mantou-sleep=';
 const FALLBACK_HASH='#sleep-tool-missing=';
 function load(key){
   const raw=localStorage.getItem(key);
   try{return JSON.parse(raw);}catch{return null;}
 }
+const matchingCandidate=(a,b)=>sameHealthConnectSleep(a.record,b.record)&&a.reason===b.reason;
+const storedSignature=rows=>JSON.stringify(rows.map(row=>JSON.stringify(row)).sort());
+function ignoredFor(scope){
+  const ignored=load(IGNORED);
+  return Array.isArray(ignored)?ignored.filter(item=>item?.scope===scope):[];
+}
+function element(tag,text){
+  const node=document.createElement(tag);
+  if(text)node.textContent=text;
+  return node;
+}
 
 export function mountOneTapSleep({currentScope,editableScope,getState,transact,showRecords,renderRecords,notify,releaseEditor,needsReturnReload}){
   let processing=false;
   let expiryTimer;
+
+  function drawReview(target,last){
+    const entries=()=>getState().journal?.entries||{};
+    const ignored=ignoredFor(last.scope);
+    const pending=last.review.filter(item=>!validHealthConnectSleep(item.record)||
+      !ignored.some(kept=>matchingCandidate(kept,item)&&
+        kept.storedSignature===storedSignature(overlappingSavedSleep(item.record,entries()))));
+    const groups=new Map();
+    for(const item of pending){
+      const group=groups.get(item.date)||[];
+      group.push(item);
+      groups.set(item.date,group);
+    }
+    for(const [date,items] of groups){
+      const section=element('section');
+      section.className='card';
+      section.append(element('h3',date||'醒来日期未知'));
+      for(const item of items)section.append(element('p',item.detail+'。'+item.reason));
+      target.append(section);
+      const records=items.map(item=>item.record);
+      if(!records.every(record=>validHealthConnectSleep(record))){
+        if(items.some(item=>!item.record))section.append(element('p','请重新一键导入一次，载入可处理的明细。'));
+        continue;
+      }
+      const existing=()=>[...new Set(records.flatMap(record=>overlappingSavedSleep(record,entries())))];
+      const current=existing();
+      const check=()=>{
+        const active=load(LAST);
+        if(editableScope()!==last.scope||currentScope()!==last.scope||active?.scope!==last.scope||
+           !items.every(item=>active.review?.some(other=>matchingCandidate(item,other)))){
+          throw Error('待核对记录或账号已变化，请重新打开记录页');
+        }
+        return active;
+      };
+      function action(label,run){
+        const button=element('button',label);
+        button.type='button';
+        button.className='btn secondary';
+        button.onclick=()=>{try{run();}catch(error){notify(error.message);}};
+        section.append(button);
+        return button;
+      }
+      if(current.length){
+        section.append(element('p','已存睡眠'));
+        for(const row of current)section.append(element('p',row.date+' · '+
+          (row.source==='Health Connect'?healthConnectLine(row):sleepLine(row))));
+        action('保留原记录',()=>{
+          check();
+          if(storedSignature(existing())!==storedSignature(current))throw Error('原记录已变化，请重新打开待核对');
+          if(!window.confirm('保留已存睡眠，并在此设备隐藏这批待核对记录？'))return;
+          const history=load(IGNORED);
+          localStorage.setItem(IGNORED,JSON.stringify([
+            ...(Array.isArray(history)?history:[]),...items.map(({record,reason})=>({scope:last.scope,record,reason,storedSignature:storedSignature(overlappingSavedSleep(record,entries()))}))
+          ].slice(-200)));
+          draw();
+          const details=document.querySelector('#oneTapSleepResult details');
+          if(details)details.open=true;
+          notify('已保留原记录');
+        });
+        continue;
+      }
+      if(records.length<2)continue;
+      try{
+        summarizeSleepParts(records);
+        if(pending.some(other=>other.date!==date&&validHealthConnectSleep(other.record,{allowUndated:true})&&
+          records.some(record=>other.record.start<record.end&&record.start<other.record.end))){
+          throw Error('与另一组待核对记录重叠，请分别核对');
+        }
+      }catch(error){section.append(element('p',error.message));continue;}
+      action('预览合并',()=>{
+        check();
+        if(section.querySelector('[data-sleep-merge-preview]'))return;
+        const preview=element('p',healthConnectPartsLine(records));
+        preview.dataset.sleepMergePreview='';
+        section.append(preview);
+        action('确认同一晚并保存',()=>{
+          check();
+          transact(state=>writeReviewedSleepParts(state,records),{requireCurrentAccountCache:true});
+          const active=load(LAST);
+          try{
+            localStorage.setItem(LAST,JSON.stringify({...active,review:active.review.filter(item=>
+              !items.some(candidate=>matchingCandidate(candidate,item)))}));
+          }catch{/* The journal was saved. A reread will identify the confirmed parts. */}
+          renderRecords();
+          draw();
+          notify('已保存合并睡眠');
+        });
+      });
+    }
+    return pending.length;
+  }
 
   function draw(){
     const link=document.getElementById('oneTapSleep');
@@ -85,12 +190,9 @@ export function mountOneTapSleep({currentScope,editableScope,getState,transact,s
         const details=document.createElement('details'),title=document.createElement('summary');
         title.textContent='查看待核对的睡眠';
         details.append(title);
-        for(const review of last.review){
-          const line=document.createElement('p');
-          line.textContent=`${review.date||'醒来日期未知'} · ${review.detail}。 ${review.reason}`;
-          details.append(line);
-        }
-        feedback.append(details);
+        const count=drawReview(details,last);
+        summary.textContent=last.message.replace(/待核对 \d+ 条/,`待核对 ${count} 条`);
+        if(count)feedback.append(details);
       }
     }
     link.onclick=event=>{
