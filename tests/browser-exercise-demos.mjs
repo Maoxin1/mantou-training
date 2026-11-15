@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { WORKOUTS } from '../dist/strength-plan.mjs';
 
 const port='4198',base=process.env.TRAINING_BASE_URL||`http://127.0.0.1:${port}/`;
 const server=process.env.TRAINING_BASE_URL?null:spawn(process.execPath,['scripts/serve.mjs'],{
@@ -42,7 +43,7 @@ try{
   };
   const checkStills=async title=>{
     await still.first().waitFor({state:'visible'});
-    assert.match(await demo.locator('h3').innerText(),title);
+    assert.equal((await demo.locator('h3').innerText()).split('\n')[0],title);
     assert.equal(await still.count(),2);
     await page.waitForFunction(selector=>[...document.querySelectorAll(selector)].every(canvas=>
       canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data.some((value,index)=>index%4===3&&value>0)),
@@ -53,16 +54,20 @@ try{
   assert.match(await page.locator('.training-hero h2').innerText(),/^C/);
   await choose('rdl');
   await toggle();
-  await checkStills(/双哑铃罗马尼亚硬拉/);
+  await checkStills('双哑铃罗马尼亚硬拉');
   await close();
   assert.equal(await read(),cState);
   const library=page.getByRole('button',{name:'动作示范',exact:true});
   assert.equal(await library.isVisible(),true,'a C session must offer a path to all available demonstrations');
   await page.screenshot({path:'test-output/demo-existing-c.png'});
   await library.click();
+  const demoButtons=page.locator('[data-demo-id]');
+  const workoutIds=[...new Set(Object.values(WORKOUTS).flatMap(workout=>workout.ids))];
+  assert.deepEqual(await demoButtons.evaluateAll(buttons=>buttons.map(button=>button.dataset.demoId).sort()),
+    [...workoutIds].sort(),'every distinct A/B/C exercise has one demonstration');
   assert.equal(await page.getByRole('button',{name:'坐姿俯身反向飞鸟',exact:true}).isVisible(),true);
   await page.getByRole('button',{name:'坐姿俯身反向飞鸟',exact:true}).click();
-  await checkStills(/坐姿俯身反向飞鸟/);
+  await checkStills('坐姿俯身反向飞鸟');
   await page.getByRole('button',{name:'返回动作示范',exact:true}).click();
   assert.equal(await page.getByRole('button',{name:'双哑铃罗马尼亚硬拉',exact:true}).isVisible(),true);
   await close();
@@ -88,7 +93,7 @@ try{
   assert.equal(await help.evaluate(el=>el.open),false);
   assert.equal(await demo.isVisible(),false);
   await toggle();
-  await checkStills(/扶大腿单臂划船/);
+  await checkStills('扶大腿单臂划船');
   await demo.screenshot({path:'test-output/demo-row-phone.png'});
   await play.click();
   await player.waitFor({state:'visible'});
@@ -106,15 +111,18 @@ try{
   await page.emulateMedia({reducedMotion:'reduce'});
   await page.setViewportSize({width:320,height:780});
   await toggle();
-  await checkStills(/双哑铃罗马尼亚硬拉/);
+  await checkStills('双哑铃罗马尼亚硬拉');
   assert.equal(await play.isVisible(),false,'reduced motion keeps both drawings and disables playback');
   assert(await page.locator('#exerciseDialog').evaluate(el=>el.scrollWidth<=el.clientWidth+1),'no horizontal clipping');
   await demo.screenshot({path:'test-output/demo-rdl-narrow.png'});
   await close();
 
   await choose('push');
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  assert.match(await help.locator('summary').innerText(),/动作示范/);
   await toggle();
-  assert.equal(await demo.count(),0,'unsupported movements retain their current help');
+  await checkStills('标准俯卧撑');
+  assert.equal(await play.count(),0,'the new push-up guide uses static diagrams');
   await close();
   assert.equal(await read(),before,'viewing and playing does not write training data');
 
@@ -125,12 +133,24 @@ try{
   await page.setViewportSize({width:820,height:1180});
   await choose('rear');
   await toggle();
-  await checkStills(/坐姿俯身反向飞鸟/);
+  await checkStills('坐姿俯身反向飞鸟');
   await demo.screenshot({path:'test-output/demo-fly-tablet.png'});
+  await close();
+  await library.click();
+  for(const id of workoutIds){
+    const button=page.locator(`[data-demo-id="${id}"]`);
+    const name=await button.innerText();
+    await button.click();
+    await checkStills(name);
+    if(['push','split','lateral','deadbug'].includes(id)){
+      await demo.screenshot({path:`test-output/demo-${id}.png`});
+    }
+    await page.getByRole('button',{name:'返回动作示范',exact:true}).click();
+  }
   await close();
   assert.equal(await read(),before,'offline help preserves the same training session');
   assert.deepEqual(errors,[]);
-  console.log('PASS TRAIN-07: C-session demo discovery; explicit new B session; optional, offline and read-only demonstrations');
+  console.log('PASS TRAIN-07: all seven A/B/C exercises have diagrams that render offline; browsing leaves training records unchanged');
 }finally{
   await browser?.close();
   server?.kill();
