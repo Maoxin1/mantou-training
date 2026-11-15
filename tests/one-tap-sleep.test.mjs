@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {fresh,validateBackup} from '../dist/engine.mjs';
-import {writeEntry} from '../dist/journal.mjs';
+import * as journal from '../dist/journal.mjs';
+const {writeEntry}=journal;
 import {parseHealthConnect} from '../dist/health-connect-sleep.mjs';
 import {createSleepRequest,acceptSleepResult,openSleepResult,applyOneTapSleep} from '../dist/one-tap-sleep.mjs';
 
@@ -12,6 +13,26 @@ const raw={
 };
 const [night]=parseHealthConnect(JSON.stringify({format:'mantou-health-connect-sleep',version:1,complete:true,records:[raw]}));
 const base64=bytes=>Buffer.from(bytes).toString('base64url');
+test('reviewed parts preserve notes, exclude gaps, and deduplicate without overwriting',()=>{
+  const state=fresh();
+  writeEntry(state,'daily:'+date,'daily',{date,notes:'留存原反馈'});
+  const a={...night,id:'a',end:'2020-01-01T18:00:00.000Z',intervalMinutes:180,actualMinutes:170};
+  const b={...night,id:'b',start:'2020-01-01T18:26:00.000Z',intervalMinutes:274,actualMinutes:260};
+  const preview=applyOneTapSleep(state,[b,a]);
+  assert.equal(preview.saved,0);
+  const merged=journal.writeReviewedSleepParts(state,[b,a]);
+  assert.equal(merged.gapMinutes,26);
+  assert.equal(merged.actualMinutes,430);
+  assert.equal(validateBackup(state).journal.entries['daily:'+date].fields.notes,'留存原反馈');
+  const saved=structuredClone(state);
+  assert.deepEqual(applyOneTapSleep(state,[b,a]),{saved:0,skipped:2,review:[]});
+  assert.deepEqual(state,saved);
+  assert.throws(()=>journal.writeReviewedSleepParts(state,[a,b]),/已有/);
+  const overlap={...b,start:'2020-01-01T17:59:00.000Z',intervalMinutes:301};
+  assert.throws(()=>journal.writeReviewedSleepParts(fresh(),[a,overlap]),/重叠/);
+  const changed={...a,lastModified:'2020-01-02T02:01:00.000Z'};
+  assert.equal(applyOneTapSleep(state,[changed,b]).review.length,1);
+});
 async function result(request,payload){
   const iv=crypto.getRandomValues(new Uint8Array(12));
   const key=await crypto.subtle.importKey('raw',Buffer.from(request.key,'base64url'),'AES-GCM',false,['encrypt']);

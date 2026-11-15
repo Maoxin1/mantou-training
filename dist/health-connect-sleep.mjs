@@ -91,10 +91,16 @@ const span = record => ({record, start:Date.parse(record.start), end:Date.parse(
 const clashes = (a,b) => Boolean(a.record.date && a.record.date === b.record.date) ||
   (a.start < b.end && b.start < a.end);
 const sourceFields = entries => Object.values(entries).filter(e => e.kind === 'daily');
+const storedHealth = fields => [fields.healthConnectSleep,...(fields.healthConnectSleepParts||[])].filter(Boolean);
+const storedSleep = fields => [fields.samsungSleep,...storedHealth(fields)].filter(Boolean);
 
 export function savedHealthConnectSpans(entries) {
-  return sourceFields(entries).filter(e => !e.deleted && e.fields.healthConnectSleep)
-    .map(e => span(e.fields.healthConnectSleep));
+  return sourceFields(entries).filter(e => !e.deleted).flatMap(e => storedHealth(e.fields).map(span));
+}
+
+export function overlappingSavedSleep(record,entries) {
+  return sourceFields(entries).filter(e=>!e.deleted)
+    .flatMap(e=>storedSleep(e.fields)).filter(saved=>clashes(span(record),span(saved)));
 }
 
 export function conflictsWithHealthConnect(record, savedSpans) {
@@ -104,9 +110,11 @@ export function conflictsWithHealthConnect(record, savedSpans) {
 
 export function planHealthConnectImport(records, entries, today) {
   const days = sourceFields(entries);
-  const stored = days.filter(e => e.fields.healthConnectSleep);
+  const stored = days.flatMap(e=>storedHealth(e.fields).map(record=>({
+    record,deleted:e.deleted,parts:e.fields.healthConnectSleepParts?.includes(record)?e.fields.healthConnectSleepParts:null
+  })));
   const saved = days.filter(e => !e.deleted)
-    .flatMap(e => [e.fields.samsungSleep,e.fields.healthConnectSleep].filter(Boolean).map(span));
+    .flatMap(e => storedSleep(e.fields).map(span));
   const incoming = records.map(span);
   return incoming.map(interval => {
     const {record} = interval;
@@ -114,19 +122,44 @@ export function planHealthConnectImport(records, entries, today) {
     if (!record.date) return review('结束时区缺失，请核对醒来日期');
     if (record.date > today) return review('醒来日期晚于今天');
     if (entries['daily:'+record.date]?.deleted) return review('这天的每日记录已删除');
-    const sameId = stored.filter(e => identity(e.fields.healthConnectSleep) === identity(record));
-    if (sameId.length && (sameId.length !== 1 || sameId[0].deleted ||
-        !sameHealthConnectSleep(record,sameId[0].fields.healthConnectSleep))) {
+    const sameId = stored.filter(other => identity(other.record) === identity(record));
+    if (sameId.some(other=>other.deleted||!sameHealthConnectSleep(record,other.record))) {
       return review('同一来源和标识已有不同版本，保留已存记录');
     }
+    const confirmed=sameId.find(other=>other.parts)?.parts;
+    if(confirmed&&!saved.some(other=>!confirmed.includes(other.record)&&
+      !sameHealthConnectSleep(record,other.record)&&clashes(interval,other)))return {record,status:'same'};
     if (incoming.some(other => other !== interval && clashes(interval,other))) {
       return review('文件中有同日多段或重叠记录，请核对');
     }
     if (saved.some(other => !sameHealthConnectSleep(record,other.record) && clashes(interval,other))) {
       return review('与已存睡眠同日或重叠，保留已存记录');
     }
-    return {record,status:sameId.length ? 'same' : 'new'};
+    return {record,status:sameId.length?'same':'new'};
   });
+}
+
+export function summarizeSleepParts(records) {
+  if(!Array.isArray(records)||records.length<2||records.length>20||
+     !records.every(record=>validHealthConnectSleep(record)))throw Error('请选择 2–20 段有效睡眠');
+  const parts=[...records].sort((a,b)=>a.start.localeCompare(b.start));
+  const first=parts[0],last=parts.at(-1),offset=first.startOffsetSeconds;
+  if(offset===null||parts.some(part=>part.date!==first.date||part.origin!==first.origin||
+    part.startOffsetSeconds!==offset||part.endOffsetSeconds!==offset))throw Error('片段的醒来日期、来源或时区不同');
+  for(let i=1;i<parts.length;i++){
+    if(parts[i].start<parts[i-1].end)throw Error('片段重叠，请分别核对');
+  }
+  const intervalMinutes=(Date.parse(last.end)-Date.parse(first.start))/60000;
+  if(intervalMinutes>1440||new Set(parts.map(identity)).size!==parts.length)throw Error('片段重复或跨度超过 24 小时');
+  const recorded=parts.reduce((total,part)=>total+part.intervalMinutes,0);
+  const actualMinutes=parts.some(part=>part.actualMinutes===null)?null:parts.reduce((total,part)=>total+part.actualMinutes,0);
+  return {date:first.date,parts,intervalMinutes,gapMinutes:Math.max(0,intervalMinutes-recorded),actualMinutes};
+}
+
+export function healthConnectPartsLine(parts) {
+  const {actualMinutes,gapMinutes}=summarizeSleepParts(parts);
+  const minutes=actualMinutes===null?'未知（有片段的阶段不完整）':Math.round(actualMinutes)+' 分钟';
+  return `Health Connect · 已确认 ${parts.length} 段 · 估计睡眠 ${minutes} · 未记录间隔 ${Math.round(gapMinutes)} 分钟`;
 }
 
 export function healthConnectLine(r) {
