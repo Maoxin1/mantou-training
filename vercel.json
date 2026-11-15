@@ -48,7 +48,8 @@
       "feat/train-05-focus": false,
       "feat/training-visual-focus": false,
       "feat/training-movement-demos": false,
-      "feat/one-tap-sleep": false
+      "feat/one-tap-sleep": false,
+      "fix/browser-focus-layout": false
     }
   }
 }
