@@ -136,6 +136,19 @@ try{
   await editor.getByText(/未记录间隔 180 分钟/).waitFor();
   if(process.env.TRAINING_SLEEP_REVIEW_SHOTS)await editor.getByRole('button',{name:'确认同一晚并保存',exact:true}).locator('..').screenshot({path:'test-output/sleep-review-merge.png'});
   assert.deepEqual(JSON.parse(await read(stateKey)),coldSaved,'preview must not write');
+  const lastKey='mantou-training-sleep-last';
+  const beforeNewCandidate=await read(lastKey);
+  await editor.evaluate(key=>{
+    const latest=JSON.parse(localStorage.getItem(key));
+    const item=structuredClone(latest.review[1]);
+    item.record.id='new-candidate';
+    latest.review.push(item);
+    localStorage.setItem(key,JSON.stringify(latest));
+  },lastKey);
+  await editor.getByRole('button',{name:'确认同一晚并保存',exact:true}).click();
+  assert.deepEqual(JSON.parse(await read(stateKey)),coldSaved,'a changed pending list must invalidate the preview');
+  await editor.getByText('待核对记录或账号已变化，请重新打开记录页',{exact:true}).waitFor();
+  await editor.evaluate(({key,value})=>localStorage.setItem(key,value),{key:lastKey,value:beforeNewCandidate});
   await editor.getByRole('button',{name:'确认同一晚并保存',exact:true}).click();
   await editor.getByText('已保存合并睡眠',{exact:true}).waitFor();
   const merged=JSON.parse(await read(stateKey));

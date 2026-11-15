@@ -108,7 +108,7 @@ export function mountOneTapSleep({currentScope,editableScope,getState,transact,s
       const check=()=>{
         const active=load(LAST);
         if(editableScope()!==last.scope||currentScope()!==last.scope||active?.scope!==last.scope||
-           !items.every(item=>active.review?.some(other=>matchingCandidate(item,other)))){
+           JSON.stringify(active.review)!==JSON.stringify(last.review)){
           throw Error('待核对记录或账号已变化，请重新打开记录页');
         }
         return active;
