@@ -91,9 +91,16 @@ try{
   if(!process.env.FOCUS_CASE||process.env.FOCUS_CASE==='layout'){
     for(const width of [390,820,320]){
       await page.setViewportSize({width,height:900});
+      for(const selector of ['#accountShortcut','#beginSession','#todayFeedback']){
+        await page.locator(selector).waitFor({state:'visible'});
+      }
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
       for(const selector of ['#accountShortcut','#beginSession','#todayFeedback']){
-        const b=await page.locator(selector).boundingBox();assert(b.width>=44&&b.height>=44,selector+' touch target');
+        const size=await page.locator(selector).evaluate(element=>{
+          const {width,height}=element.getBoundingClientRect();
+          return {width,height};
+        });
+        assert(size.width>=44&&size.height>=44,selector+' touch target at '+width+'px');
       }
     }
     await page.click('#todayFeedback');
