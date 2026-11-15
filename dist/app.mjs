@@ -81,6 +81,7 @@ document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{page=b.datase
 cloud=mountCloud({guest:()=>{try{return validateBackup(JSON.parse(localStorage.getItem(KEY)))}catch{return fresh()}},apply:(next,account)=>{state=validateBackup(next);$('saveStatus').textContent=account?'账号数据 · 本机缓存':'设备内保存';render();},notify});
 mountOneTapSleep({
   currentScope:mealOwner,editableScope:()=>cloud.editableScope(),getState:()=>state,transact,notify,
+  releaseEditor:()=>cloud.releaseForExternalApp(),needsReturnReload:()=>cloud.externalHandoff(),
   showRecords:()=>{page='history';render();},
   renderRecords:render
 });

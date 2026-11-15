@@ -38,7 +38,8 @@ try{
   }
   browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||(process.platform==='win32'?'msedge':undefined)});
   const context=await browser.newContext({...devices['Pixel 7'],timezoneId:'Asia/Shanghai'});
-  const editor=await context.newPage(),requests=[],errors=[];
+  let editor=await context.newPage();
+  const requests=[],errors=[];
   context.on('request',r=>requests.push(r.url()));
   editor.on('pageerror',e=>errors.push(e.message));
   const read=key=>editor.evaluate(key=>localStorage.getItem(key),key);
@@ -55,7 +56,7 @@ try{
   }
   await editor.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
   await editor.locator('[data-page="history"]').click();
-  const button=editor.getByRole('link',{name:'一键导入近 7 天睡眠'});
+  let button=editor.getByRole('link',{name:'一键导入近 7 天睡眠'});
   async function click(){
     await editor.evaluate(()=>window.addEventListener('click',e=>{
       if(e.target.closest('#oneTapSleep'))e.preventDefault();
@@ -84,7 +85,10 @@ try{
   await returned.goto(resultURL(sealed));
   await returned.locator('#toast').filter({hasText:'没有有效的睡眠导入请求'}).waitFor();
   assert.equal(await read(stateKey),saved);
-  await returned.close();
+  // Continue from the tab Android returned to, as the user does on a phone.
+  await editor.close();
+  editor=returned;
+  button=editor.getByRole('link',{name:'一键导入近 7 天睡眠'});
   const again=await click();
   await editor.goto(resultURL(await seal(again,{version:1,records})));
   await editor.getByText('已保存 0 条 · 重复跳过 1 条 · 待核对 2 条',{exact:true}).waitFor();

@@ -62,7 +62,7 @@ function load(key){
   try{return JSON.parse(raw);}catch{return null;}
 }
 
-export function mountOneTapSleep({currentScope,editableScope,getState,transact,showRecords,renderRecords,notify}){
+export function mountOneTapSleep({currentScope,editableScope,getState,transact,showRecords,renderRecords,notify,releaseEditor,needsReturnReload}){
   let processing=false;
   let expiryTimer;
 
@@ -104,6 +104,8 @@ export function mountOneTapSleep({currentScope,editableScope,getState,transact,s
           +';S.browser_fallback_url='+fallback+';end';
         localStorage.removeItem(RETURN);
         localStorage.setItem(REQUEST,JSON.stringify(request));
+        try{releaseEditor();}
+        catch(error){localStorage.removeItem(REQUEST);throw error;}
         clearTimeout(expiryTimer);
         expiryTimer=setTimeout(()=>void consume(),HANDOFF_MS+50);
         feedback.textContent='正在从 Health Connect 读取近 7 天睡眠…';
@@ -130,6 +132,8 @@ export function mountOneTapSleep({currentScope,editableScope,getState,transact,s
   function stageReturn(){
     const hash=location.hash;
     if(!hash.startsWith(RESULT_HASH)&&!hash.startsWith(FALLBACK_HASH))return;
+    // Reload a reused tab before reacquiring the writer lock and current account cache.
+    if(needsReturnReload()){location.reload();return;}
     history.replaceState(history.state,'',location.pathname+location.search);
     const request=load(REQUEST);
     showRecords();
