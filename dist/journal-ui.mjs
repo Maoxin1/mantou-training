@@ -1,4 +1,5 @@
 import {countedGroups,journalIcon,planCard} from './journal-cards.mjs';
+import {exerciseDemoList,exerciseDemoHTML,bindExerciseDemo} from './exercise-demos.mjs';
 import {STRENGTH_ROUTINE,STRENGTH_PLAN,WORKOUTS,isStrength,defaultWorkout,workoutPlan} from './strength-plan.mjs';
 import {sleepSection,bindSleepImport} from './sleep-ui.mjs';
 import {mealPhotoSection,bindMealPhotos,mealArchive,mealArchives,restoreMealArchive} from './meal-photos.mjs';
@@ -59,9 +60,25 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
   function openNewStrengthSession(date=today()){
     const t=trial();
     if(!isStrength(t)){selectedSession=transact(s=>startSession(s,{date}));openSession(selectedSession);return;}
-    modal('选择本次动作表',`<form id="newStrengthSessionForm">${input('date','实际训练日期',date,'date',`min="${t.start}" max="${today()}"`)}<label class="journal-field">动作表<select class="text-input" data-field="workout">${Object.entries(WORKOUTS).map(([key,w])=>`<option value="${key}" ${key===defaultWorkout(date)?'selected':''}>${w.title}</option>`).join('')}</select></label><p class="hint">可顺延日期。新建后保留当时的动作表和目标，不改写其他场次。</p><button class="btn" type="submit">新建本次训练</button></form>`,'三日力量训练');
+    modal('选择本次动作表',`<form id="newStrengthSessionForm">${input('date','实际训练日期',date,'date',`min="${t.start}" max="${today()}"`)}<label class="journal-field">动作表<select class="text-input" data-field="workout">${Object.entries(WORKOUTS).map(([key,w])=>`<option value="${key}" ${key===defaultWorkout(date)?'selected':''}>${w.title}</option>`).join('')}</select></label><p class="hint">所选日期均可使用 A、B 或 C 表。确认后另建一场，已有场次照常保留。</p><button class="btn" type="submit">新建本次训练</button></form>`,'三日力量训练');
     $('journalSave').textContent='选择后新建；尚未记录本次训练。';
-    $('newStrengthSessionForm').onsubmit=ev=>{ev.preventDefault();guard(()=>{const form=$('newStrengthSessionForm'),button=form.querySelector('button');if(button.disabled)return;const date=form.querySelector('[data-field=date]').value,workout=form.querySelector('[data-field=workout]').value;button.disabled=true;try{selectedSession=transact(s=>{if(activeTrial(s)?.id!==t.id)throw Error('当前阶段已改变，请重新选择');return startSession(s,{date,workout});});openSession(selectedSession);}catch(e){button.disabled=false;throw e;}});};
+    $('newStrengthSessionForm').onsubmit=ev=>{
+      ev.preventDefault();
+      guard(()=>{
+        const form=ev.currentTarget,button=form.querySelector('button');
+        if(button.disabled)return;
+        const date=form.querySelector('[data-field=date]').value,workout=form.querySelector('[data-field=workout]').value;
+        button.disabled=true;
+        try{
+          selectedSession=transact(s=>{
+            if(activeTrial(s)?.id!==t.id)throw Error('当前阶段已改变，请重新选择');
+            return startSession(s,{date,workout});
+          });
+        }catch(e){button.disabled=false;throw e;}
+        if($('beginSession'))renderPlan();
+        openSession(selectedSession);
+      });
+    };
   }
   function chosenSession(){let se=selectedSession&&entry(state(),selectedSession);if(se?.fields.trialId!==trial()?.id)se=null;return se||sessions(state(),trial()?.id).filter(e=>e.fields.date===today()).at(-1)||null;}
   function getOrCreateSession(){let se=chosenSession();if(!se){const id=transact(s=>startSession(s,{workout:selectedWorkout}));selectedSession=id;se=entry(state(),id);}return se;}
@@ -92,6 +109,18 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     if(!next){notify('本次动作均已暂停，请先核对后续训练安排');return;}
     openExercise(getOrCreateSession().id,next.exercise.id,next.pending);
   }
+  function openExerciseDemos(){
+    modal('动作示范',exerciseDemoList.map(({id,title})=>
+      `<button type="button" class="journal-log" data-demo-id="${id}">${esc(title)}</button>`).join(''),'三日力量训练');
+    $('journalSave').hidden=true;
+    $('dialogContent').querySelectorAll('[data-demo-id]').forEach(button=>button.onclick=()=>{
+      const id=button.dataset.demoId;
+      modal('动作示范',`${exerciseDemoHTML(id)}<button type="button" class="inline" id="backExerciseDemos">返回动作示范</button>`,'三日力量训练');
+      $('journalSave').hidden=true;
+      bindExerciseDemo($('exerciseDialog'),id);
+      $('backExerciseDemos').onclick=openExerciseDemos;
+    });
+  }
   function renderPlan(){
     if(planMode){legacyPlan();const back=document.createElement('button');back.className='inline';back.textContent='← 返回当前训练';back.onclick=()=>{planMode=false;renderPlan();};$('main').prepend(back);return;}
     const t=trial(),strength=isStrength(t),se=t?chosenSession():null,detailsOpen=$('planDetails')?.open||false;
@@ -120,13 +149,14 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
       </section>
       ${se?`<div class="training-tools">
         <button class="inline" id="sessionFeedback">${journalIcon('recovery')}训练后反馈</button>
-        <button class="inline" id="newSession">${journalIcon('plus')}${historical?'新建今天训练':'新建场次'}</button>
+        <button class="inline" id="newSession">${journalIcon('plus')}${historical?'新建今天训练':strength?'新建场次 · 选表':'新建场次'}</button>
       </div>`:''}
       ${t?`<div class="training-quick">
         <button class="btn secondary" id="todayFeedback">${journalIcon('camera')}记一餐</button>
         <button class="btn secondary" id="quickReview">${journalIcon('review')}${strength?'本周复盘':'阶段复盘'}</button>
       </div>`:''}
     </div><div>
+    ${strength?'<button type="button" class="inline" id="exerciseDemos">动作示范</button>':''}
     <details id="sessionActions" class="training-disclosure" ${actionsOpen?'open':''}>
       <summary>${journalIcon('list')}本场动作 ${journalIcon('down')}</summary>
       <div class="training-exercises">${plan.map(e=>planCard(e,exerciseLog(se,e))).join('')}</div>
@@ -141,6 +171,7 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     </div></div>`;
     if($('startTrial'))$('startTrial').onclick=openStart;
     if($('startStrength'))$('startStrength').onclick=openStrength;
+    if(strength)$('exerciseDemos').onclick=openExerciseDemos;
     if($('strengthWorkout'))$('strengthWorkout').onchange=()=>{selectedWorkout=$('strengthWorkout').value;renderPlan();};
     if(t){$('beginSession').onclick=()=>guard(beginTraining);$('todayFeedback').onclick=()=>openMeal(today());$('quickReview').onclick=()=>openReview(t.id);$('adjustTrial').onclick=openAdjust;}
     if(se){$('sessionFeedback').onclick=()=>openSession(se.id);$('newSession').onclick=()=>guard(()=>openNewStrengthSession());}
@@ -172,7 +203,9 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     if(plan.paused){notify('此场次该动作已暂停；请在调整后续训练安排中确认恢复');return;}
     const id=exerciseEntryId(sessionId,exerciseId),f=entry(state(),id)?.fields||{},rows=f.rows||blankRows(plan);
     const rowHTML=(r,i)=>`<fieldset class="set-card"><legend>第${i+1}组${i>=plan.sets?' · 额外一组／同组分段':''}</legend><label class="journal-field">阻力规格／握距<input class="text-input" data-row="${i}" data-key="load" maxlength="200" value="${esc(r.load)}"></label><div class="journal-columns">${plan.sides?`<label>左侧次数<input class="text-input" data-row="${i}" data-key="left" type="number" min="0" max="600" step="1" value="${r.left??''}"></label><label>右侧次数<input class="text-input" data-row="${i}" data-key="right" type="number" min="0" max="600" step="1" value="${r.right??''}"></label>`:`<label>实际次数<input class="text-input" data-row="${i}" data-key="reps" type="number" min="0" max="600" step="1" value="${r.reps??''}"></label>`}<label>还能规范做几次<select class="text-input" data-row="${i}" data-key="rir"><option value="">未填写</option>${Object.entries(LABELS.rir).map(([v,t])=>`<option value="${v}" ${r.rir===v?'selected':''}>${t}</option>`).join('')}</select></label></div><details><summary>版本、休息与动作质量</summary><label class="journal-field">实际动作版本<input class="text-input" data-row="${i}" data-key="variant" maxlength="200" value="${esc(r.variant)}"></label><label class="journal-field">组间休息（秒）<input class="text-input" data-row="${i}" data-key="rest" type="number" min="0" max="600" step="1" value="${r.rest??''}"></label><label class="journal-field">动作质量<select class="text-input" data-row="${i}" data-key="quality"><option value="">未填写</option>${Object.entries(LABELS.quality).map(([v,t])=>`<option value="${v}" ${r.quality===v?'selected':''}>${t}</option>`).join('')}</select></label></details></fieldset>`;
-    modal(plan.name,`<p class="muted">${se.fields.date} · 当时目标 ${plan.sets}组 × ${plan.sides?'每侧':''}${plan.min}–${plan.max}次 · 休息${plan.rest}秒左右</p><details class="exercise-help"><summary>动作要点与填写说明</summary><p>${esc(plan.cue)}</p><p>空白是未填，0是实际做了0次。余力估不准选“不确定”。同组换版本时另加一行并注明分段。</p></details><div id="trialSetRows">${rows.map(rowHTML).join('')}</div><button class="inline" id="addSetRow">＋ 添加一行：额外组或同组换版本</button><details><summary>完成情况与补充</summary>${select('exerciseStatus','这个动作的完成情况',f.exerciseStatus,'exerciseStatus')}${area('notes','动作问题／分段说明／未完成原因',f.notes)}</details><button class="inline" id="backSession">返回训练后反馈／次日恢复</button><button class="btn" id="journalDone">完成本次填写</button>`,'逐组实际记录');
+    const demonstration=exerciseDemoHTML(exerciseId);
+    modal(plan.name,`<p class="muted">${se.fields.date} · 当时目标 ${plan.sets}组 × ${plan.sides?'每侧':''}${plan.min}–${plan.max}次 · 休息${plan.rest}秒左右</p><details class="exercise-help"><summary>${demonstration?'动作示范与填写说明':'动作要点与填写说明'}</summary><p>${esc(plan.cue)}</p>${demonstration}<p>空白是未填，0是实际做了0次。余力估不准选“不确定”。同组换版本时另加一行并注明分段。</p></details><div id="trialSetRows">${rows.map(rowHTML).join('')}</div><button class="inline" id="addSetRow">＋ 添加一行：额外组或同组换版本</button><details><summary>完成情况与补充</summary>${select('exerciseStatus','这个动作的完成情况',f.exerciseStatus,'exerciseStatus')}${area('notes','动作问题／分段说明／未完成原因',f.notes)}</details><button class="inline" id="backSession">返回训练后反馈／次日恢复</button><button class="btn" id="journalDone">完成本次填写</button>`,'逐组实际记录');
+    bindExerciseDemo($('exerciseDialog'),exerciseId);
     bindFields(id,'exercise',{sessionId,exerciseId,rows:copy(rows)});$('backSession').onclick=()=>openSession(sessionId);
     $('dialogContent').querySelectorAll('[data-row]').forEach(el=>el.oninput=()=>{
       if(!el.checkValidity()){$('journalSave').textContent='输入尚未保存：次数与休息需为0–600的整数。';return;}
