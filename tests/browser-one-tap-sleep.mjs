@@ -4,8 +4,9 @@ import {once} from 'node:events';
 import {delimiter} from 'node:path';
 import {chromium,devices} from 'playwright';
 
-const ROOT='http://127.0.0.1:4201/';
-const server=spawn(process.execPath,['scripts/serve.mjs'],{env:{...process.env,PORT:'4201'},stdio:['ignore','pipe','inherit']});
+const preview=process.env.TRAINING_ONE_TAP_PREVIEW;
+const ROOT=preview?new URL('/',preview).href:'http://127.0.0.1:4201/';
+const server=preview?null:spawn(process.execPath,['scripts/serve.mjs'],{env:{...process.env,PORT:'4201'},stdio:['ignore','pipe','inherit']});
 const stateKey='mantou-training-v1';
 const requestKey='mantou-training-sleep-request';
 const responseKey='mantou-training-sleep-return';
@@ -30,14 +31,28 @@ async function seal(request,payload){
 
 let browser;
 try{
-  await Promise.race([once(server.stdout,'data'),once(server,'exit').then(([code])=>{throw Error('Test server exited '+code);})]);
+  if(server){
+    await Promise.race([once(server.stdout,'data'),once(server,'exit').then(([code])=>{throw Error('Test server exited '+code);})]);
+  }else{
+    assert.match(ROOT,/^https:\/\//);
+  }
   browser=await chromium.launch({channel:process.env.BROWSER_CHANNEL||(process.platform==='win32'?'msedge':undefined)});
   const context=await browser.newContext({...devices['Pixel 7'],timezoneId:'Asia/Shanghai'});
   const editor=await context.newPage(),requests=[],errors=[];
   context.on('request',r=>requests.push(r.url()));
   editor.on('pageerror',e=>errors.push(e.message));
   const read=key=>editor.evaluate(key=>localStorage.getItem(key),key);
-  await editor.goto(ROOT);
+  await editor.goto(ROOT,{waitUntil:'domcontentloaded'});
+  if(preview){
+    const boundary=await editor.evaluate(async()=>{
+      const [config,sync]=await Promise.all([
+        fetch('/cloud-config.mjs',{redirect:'error'}),fetch('/api/sync',{redirect:'error'})
+      ]);
+      return {configStatus:config.status,syncStatus:sync.status,isolated:/export const AUTH_URL="";/.test(await config.text())};
+    });
+    assert.deepEqual(boundary,{configStatus:200,syncStatus:404,isolated:true},
+      'synthetic browser tests require an isolated preview with no sync API');
+  }
   await editor.waitForFunction(()=>Boolean(navigator.serviceWorker.controller));
   await editor.locator('[data-page="history"]').click();
   const button=editor.getByRole('link',{name:'一键导入近 7 天睡眠'});
@@ -104,5 +119,5 @@ try{
   console.log('PASS one-tap request, offline second-tab and cold-start return, conflicts, duplicate/replay, scope isolation, missing tool and permission denial');
 }finally{
   await browser?.close();
-  server.kill();
+  server?.kill();
 }
