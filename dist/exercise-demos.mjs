@@ -120,6 +120,8 @@ function drawFlySide(ctx){
   dumbbell(ctx,[95,96]);
 }
 
+export const exerciseDemoList=Object.entries(demos).map(([id,{title}])=>({id,title}));
+
 export function exerciseDemoHTML(id){
   if(!Object.hasOwn(demos,id))return '';
   const demo=demos[id];
@@ -172,15 +174,17 @@ export function bindExerciseDemo(dialog,id){
     player.hidden=true;
     button.textContent='播放一次';
   }
-  details.addEventListener('toggle',()=>{
-    if(!details.open){reset();return;}
+  function showStills(){
+    if(details&&!details.open){reset();return;}
     if(!drawn){
       paint(stillCanvases[0],0,id==='rear');
       paint(stillCanvases[1],1);
       drawn=true;
     }
     button.hidden=motion.matches;
-  });
+  }
+  details?.addEventListener('toggle',showStills);
+  showStills();
   button.addEventListener('click',()=>{
     if(request){reset();return;}
     if(motion.matches)return;
@@ -190,7 +194,7 @@ export function bindExerciseDemo(dialog,id){
     button.textContent='停止播放';
     paint(canvas,0);
     request=requestAnimationFrame(function animate(now){
-      if(!block.isConnected||!dialog.open||!details.open||motion.matches){reset();return;}
+      if(!block.isConnected||!dialog.open||(details&&!details.open)||motion.matches){reset();return;}
       const elapsed=now-started;
       if(elapsed>=3000){reset();return;}
       const position=(1-Math.cos((elapsed/3000)*2*Math.PI))/2;
