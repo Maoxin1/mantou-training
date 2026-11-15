@@ -16,6 +16,7 @@ export async function mealRequest(owner,method,query,body){
 }
 export function mountCloud({guest,apply,notify}){
   let ownsWindow=!navigator.locks,identity=null,store=null,cacheFailure=null,busy=false,message='未登录 · 记录保存在本机',timer;
+  let releaseEditor=null,externalHandoff=false;
   try{identity=JSON.parse(localStorage.getItem(ID)||'null');}catch{}
   const section=node('details');section.className='card cloud-panel';section.style.margin='12px 0';
   const summary=node('summary','邮箱账号与同步'),status=node('p',message),content=node('div');status.setAttribute('role','status');section.append(summary,content);document.querySelector('header').after(status,section);status.hidden=true;const placePanel=()=>{const slot=document.getElementById('accountSlot');if(slot)slot.append(section);else section.remove();};document.addEventListener('training:render',placePanel);placePanel();
@@ -36,7 +37,7 @@ export function mountCloud({guest,apply,notify}){
     try{const result=await target.sync((method,body)=>transport(accountId,method,body));if(store!==target)return;if(!document.querySelector('dialog[open]'))update();setMessage(result==='conflict'?'有记录差异 · 点击处理':result==='pending'?'已保存本机 · 等待再次同步':'已与云端同步 · '+new Date().toLocaleTimeString());}
     catch(e){if(store===target)setMessage('同步失败 · '+(e.message||'本机记录仍保留'));}finally{busy=false;}
   }
-  if(navigator.locks)navigator.locks.request('mantou-training-editor',{ifAvailable:true},lock=>{if(!lock){setMessage('另一窗口正在使用训练卡 · 请关闭另一窗口后刷新，本窗口暂不可编辑');return;}ownsWindow=true;schedule();return new Promise(()=>{});});
+  if(navigator.locks)navigator.locks.request('mantou-training-editor',{ifAvailable:true},lock=>{if(!lock){setMessage('另一窗口正在使用训练卡 · 请关闭另一窗口后刷新，本窗口暂不可编辑');return;}ownsWindow=true;schedule();window.dispatchEvent(new Event('training:editor-ready'));return new Promise(resolve=>{releaseEditor=resolve;});});
   const schedule=()=>{clearTimeout(timer);timer=setTimeout(sync,800);};
   function draw(){
     content.replaceChildren();
@@ -84,6 +85,19 @@ export function mountCloud({guest,apply,notify}){
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule();});
   setInterval(()=>{if(!document.hidden)sync();},30000);schedule();
   return {
+    releaseForExternalApp(){
+      if(!ownsWindow||cacheFailure||document.querySelector('dialog[open]'))throw Error('请在原训练窗口关闭填写页后重试');
+      if(busy)throw Error('正在同步，请等同步结束后再导入睡眠');
+      ownsWindow=false;externalHandoff=true;clearTimeout(timer);
+      releaseEditor?.();releaseEditor=null;
+      setMessage('睡眠导入已交接，请在返回的训练卡窗口继续；如未跳转，请刷新本页后重试');
+    },
+    externalHandoff:()=>externalHandoff,
+    editableScope(){
+      if(!ownsWindow||cacheFailure||(identity&&!store))return null;
+      const scope=identity?.id||'guest';
+      return mealOwner()===scope?scope:null;
+    },
     import(next){if(cacheFailure)throw Error('请先恢复账号原始缓存');if(!ownsWindow)throw Error('请关闭另一训练窗口后刷新，本窗口暂不可编辑');if(!store)return false;store.import(next);update();setMessage('备份已合并 · 如有冲突请展开处理');schedule();return true;},
     save(next,expected){
       if(cacheFailure)throw Error('账号原始缓存尚未恢复，当前编辑未保存');

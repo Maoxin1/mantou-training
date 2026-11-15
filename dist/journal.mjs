@@ -1,4 +1,5 @@
 import {validateSleepSegments,sleepLine} from './sleep-core.mjs';
+import {validHealthConnectSleep,healthConnectLine} from './health-connect-sleep.mjs';
 import {STRENGTH_ROUTINE,STRENGTH_PLAN,WORKOUTS,isStrength,defaultWorkout,workoutPlan} from './strength-plan.mjs';
 // Versioned daily journal. No personal measurements, account details or real logs belong here.
 export const copy=x=>JSON.parse(JSON.stringify(x));
@@ -61,6 +62,10 @@ export function validateJournal(value){
     if(!obj(e)||e.id!==id||!['daily','session','exercise'].includes(e.kind)||!obj(e.fields)||typeof e.created!=='string'||typeof e.updated!=='string'||typeof e.deleted!=='boolean')throw Error('备份含无效每日记录');
     safeJSON(e);
     if(e.fields.samsungSleep!==undefined&&(e.kind!=='daily'||!validateSleepSegments(e.fields.samsungSleep)||e.fields.samsungSleep.date!==e.fields.date))throw Error('备份含无效三星睡眠数据');
+    if(e.fields.healthConnectSleep!==undefined&&(e.kind!=='daily'||id!=='daily:'+e.fields.date||
+      !validHealthConnectSleep(e.fields.healthConnectSleep)||e.fields.healthConnectSleep.date!==e.fields.date)){
+      throw Error('备份含无效 Health Connect 睡眠数据');
+    }
     if(e.kind==='daily'||e.kind==='session'){if(!dateOK(e.fields.date))throw Error('备份含无效记录日期');}
     if(e.kind==='session'){const f=e.fields,t=value.trials[f.trialId];if(typeof f.trialId!=='string'||!t)throw Error('备份中的训练缺少试行阶段');if(isStrength(t)){if(!Object.hasOwn(WORKOUTS,f.workout)||f.date<t.start)throw Error('训练动作表或阶段日期无效');validatePlan(f.plan,WORKOUTS[f.workout].ids);}else validatePlan(f.plan,DEFAULT_PLAN.map(e=>e.id));}
     if(e.kind==='exercise'){
@@ -94,11 +99,29 @@ export function startTrial(s,{start=today(),budget=30,routine}={}){
 export function weekStart(date){if(!dateOK(date))throw Error('复盘日期无效');return plusDays(date,-((new Date(date+'T12:00:00').getDay()+6)%7));}
 export function plannedDates(t,asOf=today()){const strength=isStrength(t),from=strength?weekStart(asOf):t.start;return Array.from({length:strength?7:14},(_,i)=>plusDays(from,i)).filter(d=>d>=t.start&&(strength?[1,3,5]:[2,4]).includes(new Date(d+'T12:00:00').getDay()));}
 export function entry(s,id){const e=s.journal?.entries[id];return e&&!e.deleted?e:null;}
+function updatedEntry(old,id,kind,fields,at){
+  const fieldUpdated=Object.fromEntries(Object.keys(old?.fields||{}).map(key=>[key,old.fieldUpdated?.[key]||old.updated]));
+  for(const key of Object.keys(fields)){
+    if(JSON.stringify(fields[key])!==JSON.stringify(old?.fields[key]))fieldUpdated[key]=at;
+  }
+  return {id,kind,created:old?.created||at,updated:at,deleted:false,fieldUpdated,fields:{...old?.fields,...copy(fields)}};
+}
 export function writeEntry(s,id,kind,fields){
   const j=ensureJournal(s),old=j.entries[id],at=stamp();
   if(['daily','session'].includes(kind)&&fields.date!==undefined&&(!dateOK(fields.date)||fields.date>today()))throw Error('实际记录日期必须有效且不晚于今天');
-  const next={id,kind,created:old?.created||at,updated:at,deleted:false,fieldUpdated:{...Object.fromEntries(Object.keys(old?.fields||{}).map(k=>[k,old.fieldUpdated?.[k]||old.updated])),...Object.fromEntries(Object.keys(fields).filter(k=>JSON.stringify(old?.fields[k])!==JSON.stringify(fields[k])).map(k=>[k,at]))},fields:{...(old?.fields||{}),...copy(fields)}};
+  const next=updatedEntry(old,id,kind,fields,at);
   validateJournal({...j,entries:{...j.entries,[id]:next}});j.entries[id]=next;return next;
+}
+export function writeHealthConnectNights(s, records){
+  const journal=s.journal||emptyJournal(), entries={...journal.entries}, at=stamp(), end=today();
+  for(const record of records){
+    const id='daily:'+record.date, prior=entries[id];
+    if(!dateOK(record.date)||record.date>end||prior?.deleted||prior?.fields.samsungSleep||prior?.fields.healthConnectSleep){
+      throw Error('睡眠记录或日期已有变化，请重新预览');
+    }
+    entries[id]=updatedEntry(prior,id,'daily',{date:record.date,healthConnectSleep:record},at);
+  }
+  s.journal=validateJournal({...journal,entries});
 }
 export function startSession(s,{date=today(),trialId=activeTrial(s)?.id,workout=defaultWorkout(date)}={}){
   const t=s.journal?.trials[trialId];if(!t)throw Error('请先开始两周试行');
@@ -156,7 +179,7 @@ export function trialMarkdown(s,trialId=activeTrial(s)?.id,asOf=today()){
     for(const {plan,log}of sessionExercises(s,se)){out+=`- ${plan.name}：${label('exerciseStatus',log?.fields.exerciseStatus)}；${log?.fields.notes||'无补充'}；当时目标${plan.sets}组×${plan.min}–${plan.max}次${plan.sides?'／侧':''}。\n`;}
     out+='\n';
   }
-  for(const d of q.days){const f=d.fields;if(f.samsungSleep)out+=`- ${f.date} 导入睡眠：${sleepLine(f.samsungSleep)}。\n`;out+=`### ${f.date}｜每日反馈 ${d.id}\n\n- 活动：${label('activity',f.activity)}；羽毛球${number(f.badmintonMinutes)}分钟。\n- 反馈时段：${label('feedbackScope',f.feedbackScope)}；下午饥饿：${label('afternoonHunger',f.afternoonHunger)}；胃肠感受：${label('digestion',f.digestion)}。\n- 饥饿：${label('hunger',f.hunger)}；精神：${label('energy',f.energy)}；睡眠：${label('sleep',f.sleepQuality)}。\n- 早餐：${f.breakfast||'未填写'}；实际食用：${label('mealAmount',f.breakfastAmount)}；补充：${f.breakfastNote||'未填写'}\n- 午餐：${f.lunch||'未填写'}；实际食用：${label('mealAmount',f.lunchAmount)}；补充：${f.lunchNote||'未填写'}\n- 晚餐：${f.dinner||'未填写'}；实际食用：${label('mealAmount',f.dinnerAmount)}；补充：${f.dinnerNote||'未填写'}\n- 加餐：${f.snackNote||'未填写'}；实际食用：${label('mealAmount',f.snackAmount)}\n- 加餐／份量说明：${f.foodNotes||'未填写'}\n- 当日食用成本估算：${number(f.cost)}元；当日采购付款：${number(f.purchase)}元。\n- 咖啡：${f.coffeeProduct||'产品未填写'}；第1杯${f.coffeeTime1||'时间未填'}／${number(f.coffeeGrams1)}克；第2杯${f.coffeeTime2||'时间未填'}／${number(f.coffeeGrams2)}克。\n- 体重${number(f.weight)}kg；腰围${number(f.waist)}cm；测量条件${f.measureNotes||'未填写'}。\n- 自由补充：${f.notes||'未填写'}\n- 保存时间：${d.updated}。\n\n`;}
+  for(const d of q.days){const f=d.fields;if(f.samsungSleep)out+=`- ${f.date} 导入睡眠：${sleepLine(f.samsungSleep)}。\n`;if(f.healthConnectSleep)out+=`- ${f.date} 导入睡眠：${healthConnectLine(f.healthConnectSleep)}。\n`;if(f.samsungSleep&&f.healthConnectSleep)out+=' - 当天有两种来源的睡眠记录，需核对。\n';out+=`### ${f.date}｜每日反馈 ${d.id}\n\n- 活动：${label('activity',f.activity)}；羽毛球${number(f.badmintonMinutes)}分钟。\n- 反馈时段：${label('feedbackScope',f.feedbackScope)}；下午饥饿：${label('afternoonHunger',f.afternoonHunger)}；胃肠感受：${label('digestion',f.digestion)}。\n- 饥饿：${label('hunger',f.hunger)}；精神：${label('energy',f.energy)}；睡眠：${label('sleep',f.sleepQuality)}。\n- 早餐：${f.breakfast||'未填写'}；实际食用：${label('mealAmount',f.breakfastAmount)}；补充：${f.breakfastNote||'未填写'}\n- 午餐：${f.lunch||'未填写'}；实际食用：${label('mealAmount',f.lunchAmount)}；补充：${f.lunchNote||'未填写'}\n- 晚餐：${f.dinner||'未填写'}；实际食用：${label('mealAmount',f.dinnerAmount)}；补充：${f.dinnerNote||'未填写'}\n- 加餐：${f.snackNote||'未填写'}；实际食用：${label('mealAmount',f.snackAmount)}\n- 加餐／份量说明：${f.foodNotes||'未填写'}\n- 当日食用成本估算：${number(f.cost)}元；当日采购付款：${number(f.purchase)}元。\n- 咖啡：${f.coffeeProduct||'产品未填写'}；第1杯${f.coffeeTime1||'时间未填'}／${number(f.coffeeGrams1)}克；第2杯${f.coffeeTime2||'时间未填'}／${number(f.coffeeGrams2)}克。\n- 体重${number(f.weight)}kg；腰围${number(f.waist)}cm；测量条件${f.measureNotes||'未填写'}。\n- 自由补充：${f.notes||'未填写'}\n- 保存时间：${d.updated}。\n\n`;}
   const missing=Array.from({length:q.totalDays},(_,i)=>plusDays(q.from,i)).filter(d=>!q.days.some(e=>e.fields.date===d));out+=`## 缺失与下一阶段讨论\n\n- 尚无每日反馈的日期：${missing.join('、')||'无'}。\n- 核对动作版本、阻力、休息、完成质量后，再讨论次数变化。\n- 结合持续饥饿、精神、恢复和实际食物份量讨论饮食；不把空白、包装重量或单日体重当作结论。\n- 保持／调整：待本人确认。\n- 调整依据与尚缺信息：\n\n> 将此Markdown放入Obsidian，或发给助手读取。助手不能默认直接访问账号记录。完整JSON备份另用于恢复。\n`;
   return out;
 }

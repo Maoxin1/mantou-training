@@ -1,3 +1,4 @@
+import {conflictsWithHealthConnect,savedHealthConnectSpans} from './health-connect-sleep.mjs';
 // Samsung export timestamps are UTC text; time_offset describes the local zone.
 export function csvRows(text){
   const rows=[];let row=[],cell='',quoted=false;
@@ -86,6 +87,7 @@ function needsRevisionReview(previous,part){
 // Group by Samsung's explicit night identifier, never by proximity alone.
 export function planSleepImport(records,entries,{from,to}){
   const groups=new Map(),byDate=new Map(),savedDates=new Map();
+  const healthConnect=savedHealthConnectSpans(entries);
   for(const e of Object.values(entries)){
     if(e.deleted||!e.fields.samsungSleep)continue;
     const sleep=e.fields.samsungSleep;
@@ -114,6 +116,7 @@ export function planSleepImport(records,entries,{from,to}){
     let sleep;
     try{sleep=mergeSleepSegments(parts);}catch(error){return review(error.message);}
     if(!validateSleepSegments(sleep)||sleep.date!==date)return review('片段的日期或时区待核对');
+    if(conflictsWithHealthConnect(sleep,healthConnect))return review('与已存 Health Connect 睡眠同日或重叠，请核对');
     if(!previous)return {date,status:'new',sleep};
     if(sameSleep(previous,sleep))return {date,status:'same',sleep};
     if(includesOlderSleepPart(previous,sleep))return {date,status:'older'};

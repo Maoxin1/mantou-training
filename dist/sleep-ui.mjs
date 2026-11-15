@@ -1,8 +1,82 @@
 import {unzipSync,strFromU8} from './meal-zip.mjs';
 import {parseSleep,sleepLine,mergeSleepSegments,planSleepImport,sameSleep,includesOlderSleepPart} from './sleep-core.mjs';
-import {dateOK,entry,plusDays,writeEntry,today} from './journal.mjs';
+import {HEALTH_CONNECT_FILE_LIMIT,parseHealthConnect,healthConnectLine,planHealthConnectImport,
+  conflictsWithHealthConnect,savedHealthConnectSpans} from './health-connect-sleep.mjs';
+import {dateOK,entry,plusDays,writeEntry,writeHealthConnectNights,today} from './journal.mjs';
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-export function sleepSection(s,date){const r=entry(s,'daily:'+date)?.fields.samsungSleep;return r?`<p class="hint">${esc(sleepLine(r))}</p>${!r.segments&&!Object.hasOwn(r,'groupId')?'<p class="hint">旧版单条导入：可能未包含同一晚的其他片段。可重新导入原ZIP核对完整性。</p>':''}`:'';}
+export function sleepSection(s,date){
+  const fields=entry(s,'daily:'+date)?.fields, samsung=fields?.samsungSleep, health=fields?.healthConnectSleep;
+  const note=samsung&&health?'<p class="warning">有两种来源的睡眠记录，请核对。两条记录分别显示。</p>':'';
+  const legacy=samsung&&!samsung.segments&&!Object.hasOwn(samsung,'groupId')?
+    '<p class="hint">旧版单条导入：可能未包含同一晚的其他片段。可重新导入原 ZIP 核对完整性。</p>':'';
+  return note+(samsung?`<p class="hint">${esc(sleepLine(samsung))}</p>`:'')+legacy+
+    (health?`<p class="hint">${esc(healthConnectLine(health))}</p>`:'');
+}
+
+export function bindHealthConnectImport({state,save,modal,notify,refresh}){
+  document.getElementById('importHealthSleep').onclick=()=>{
+    modal('导入 Health Connect 睡眠',`
+      <label class="journal-field">选择 mantou 睡眠导出的 JSON
+        <input type="file" id="healthSleepFile" accept=".json,application/json">
+      </label>
+      <p id="healthSleepStatus" role="status"></p>
+      <div id="healthSleepPreview"></div>`);
+    document.getElementById('journalSave').textContent='先预览，选择后确认保存。';
+    const input=document.getElementById('healthSleepFile');
+    const status=document.getElementById('healthSleepStatus');
+    const root=document.getElementById('healthSleepPreview');
+    const plan=records=>planHealthConnectImport(records,state().journal?.entries||{},today());
+    input.onchange=async()=>{
+      const file=input.files[0];
+      root.replaceChildren();status.textContent='';
+      if(!file)return;
+      const isCurrent=()=>input.isConnected&&input.closest('dialog')?.open&&input.files[0]===file;
+      let records;
+      try{
+        status.textContent='正在本机读取…';
+        if(file.size>HEALTH_CONNECT_FILE_LIMIT)throw Error('睡眠 JSON 超过 10 MB');
+        const content=await file.text();
+        if(!isCurrent())return;
+        records=parseHealthConnect(content);
+      }catch(error){
+        if(isCurrent())status.textContent='导入失败：'+error.message;
+        return;
+      }
+      function renderPreview(){
+        const preview=plan(records);
+        const total=value=>preview.filter(item=>item.status===value).length;
+        status.textContent=`可新增 ${total('new')} 条 · 重复跳过 ${total('same')} 条 · 待核对 ${total('review')} 条`;
+        if(!preview.length){root.replaceChildren();return;}
+        root.innerHTML=preview.map(({record,status,reason},index)=>{
+          const detail=esc(healthConnectLine(record)), date=esc(record.date||'醒来日期未知');
+          if(status==='same')return '';
+          if(status==='review')return `<p class="hint"><strong>${date} · 待核对</strong><br>${detail}<br>${esc(reason)}</p>`;
+          return `<label class="journal-field"><span><input type="checkbox" data-health-sleep="${index}" checked>
+            ${date} · 新增</span><small>${detail}</small></label>`;
+        }).join('')+(total('new')?'<button class="btn" id="saveHealthSleep">确认保存所选睡眠</button>':'');
+        const button=root.querySelector('#saveHealthSleep');
+        if(!button)return;
+        const checked=()=>[...root.querySelectorAll('[data-health-sleep]:checked')];
+        root.onchange=()=>{button.disabled=!checked().length;};
+        button.onclick=()=>{
+          if(!isCurrent())return;
+          const selection=checked().map(el=>preview[Number(el.dataset.healthSleep)].record);
+          if(!selection.length)return;
+          const saved=save(next=>{
+            const allowed=new Set(planHealthConnectImport(records,next.journal?.entries||{},today())
+              .filter(item=>item.status==='new').map(item=>item.record));
+            if(selection.some(record=>!allowed.has(record)))throw Error('睡眠记录已变化，请核对最新预览后再保存');
+            writeHealthConnectNights(next,selection);
+          },{requireCurrentAccountCache:true});
+          if(saved===false){renderPreview();return;}
+          refresh();renderPreview();
+          notify(`已保存 ${selection.length} 晚睡眠`);
+        };
+      }
+      renderPreview();
+    };
+  };
+}
 
 function bindBatch({root,records,state,save,notify,refresh}){
   const end=today();
@@ -78,6 +152,7 @@ export function bindSleepImport({state,save,modal,notify,refresh}){
         const select=document.getElementById('sleepSelect'),existing=document.getElementById('sleepExisting'),combined=document.getElementById('sleepCombined'),button=document.getElementById('saveSleep');let chosen=null,shownEntry;
         const update=()=>{try{chosen=mergeSleepSegments([...document.querySelectorAll('[data-sleep-segment]:checked')].map(el=>rows[+el.dataset.sleepSegment]));if(chosen.date!==select.value)throw Error('请至少选择一段在所选日期结束的睡眠');combined.textContent='保存预览：'+sleepLine(chosen);shownEntry=state().journal?.entries['daily:'+chosen.date];const old=shownEntry?.fields.samsungSleep;
           if(shownEntry?.deleted)throw Error('这天的每日记录已删除');
+          if(conflictsWithHealthConnect(chosen,savedHealthConnectSpans(state().journal?.entries||{})))throw Error('与已存 Health Connect 睡眠同日或重叠，请核对');
           if(includesOlderSleepPart(old,chosen))throw Error('所选文件含有旧版片段，已保留已保存记录');
           existing.textContent=old?'当天已保存：'+sleepLine(old)+'。确认后将替换这条睡眠，保留手填反馈。':'当天尚未保存睡眠。';button.disabled=false;}catch(e){chosen=null;combined.textContent=e.message;existing.textContent='';button.disabled=true;}};
         const show=()=>{const anchor=rows.find(r=>r.date===select.value),end=Date.parse(anchor.end);document.getElementById('sleepSegments').innerHTML=rows.map((r,i)=>({r,i})).filter(({r})=>Date.parse(r.end)<=end&&Date.parse(r.start)>=end-86400000).map(({r,i})=>`<label class="journal-field"><span><input type="checkbox" data-sleep-segment="${i}" ${r.sourceId===anchor.sourceId||(anchor.groupId&&r.groupId===anchor.groupId)?'checked':''}> ${esc(r.date+' · '+sleepLine(r))}</span></label>`).join('');document.querySelectorAll('[data-sleep-segment]').forEach(el=>el.onchange=update);update();};select.onchange=show;show();
@@ -88,6 +163,7 @@ export function bindSleepImport({state,save,modal,notify,refresh}){
           if(save(s=>{
             const current=s.journal?.entries[id];
             if(current?.deleted||!sameSleep(current?.fields.samsungSleep,old,true))throw Error('睡眠记录已变化，请核对最新预览后再保存');
+            if(conflictsWithHealthConnect(r,savedHealthConnectSpans(s.journal?.entries||{})))throw Error('与已存 Health Connect 睡眠同日或重叠，请核对');
             writeEntry(s,id,'daily',{date:r.date,samsungSleep:r});
           },{requireCurrentAccountCache:true})===false){update();batch();return;}
           notify('已保存到'+r.date+'每日记录；联网后账号同步');refresh();update();batch();
