@@ -15,7 +15,7 @@ const weighted=new Set(['dbrow','rdl','rear','lateral']);
 const formatted=kg=>'单只 '+kg+' kg';
 export const kgOf=text=>{
   const normalized=String(text??'').normalize('NFKC').trim();
-  const match=/^(?:单只|每只|每支|每手|左右各|左右手各)\s*(\d+(?:\.\d+)?)\s*(?:kg|公斤|千克)$/i.exec(normalized);
+  const match=/^(?:单只|每只|每支|每手|左右手各)\s*(\d+(?:\.\d+)?)\s*(?:kg|公斤|千克)$/i.exec(normalized);
   const kg=match?Number(match[1]):null;
   return Number.isFinite(kg)&&kg>0?kg:null;
 };
@@ -57,7 +57,8 @@ export function loadAdvice(state,trial,plan,date,availableKg){
       &&['2','4'].includes(rows.at(-1).rir);
     const baseline=same&&f.status==='complete'&&f.pain==='no'&&!pain&&!struggling&&log.exerciseStatus!=='partial'
       &&rows.length===plan.sets&&rows.every(r=>count(r)>=plan.min)&&['2','4'].includes(rows.at(-1).rir);
-    observations.push({date:f.date,pain,kg,variant,same,struggling,qualifies,baseline});
+    const ambiguous=compatible&&rows.some(r=>hasActual(r)&&/^左右各/.test(r.load.trim()));
+    observations.push({date:f.date,pain,kg,variant,same,struggling,qualifies,baseline,ambiguous});
   }
   const [last,previous]=observations;
   const configured=kgOf(plan.load);
@@ -71,6 +72,9 @@ export function loadAdvice(state,trial,plan,date,availableKg){
     return message('start',starts[plan.id],initial);
   }
   if(last.pain)return message('check','近期记录有不适或恢复受影响。先核对当时的情况，本次暂缓调重。');
+  if(last.ambiguous&&configured===null&&['待填写每只哑铃重量',rodSetup].includes(plan.load)){
+    return message('measure','旧记录写了「左右各」。请称上次实际使用的一只器械，装杆时包含杆和锁扣，在负重建议里确认一次。',availableKg>0&&Number.isFinite(availableKg)?target(availableKg,last.variant):null);
+  }
   if(!last.same||(configured!==null?configured!==last.kg:!['待填写每只哑铃重量',rodSetup].includes(plan.load)))return message('hold','最近一次的重量、版本或目标与当前计划不一致。先按当前计划校准。');
   const note='最近一次每手 '+last.kg+' kg。';
   const known=[...(usedWeights.get(last.variant)||[])].sort((a,b)=>a-b);
@@ -89,6 +93,6 @@ export function loadAdvice(state,trial,plan,date,availableKg){
       last.baseline&&['待填写每只哑铃重量',rodSetup].includes(plan.load)?target(last.kg,last.variant):null);
   }
   if(!Number.isFinite(availableKg)||availableKg<=last.kg)return message('ready',note+'两次均达标，可核对下一档的实际单只重量。');
-  if(availableKg>last.kg*1.1+1e-9)return message('step',note+'下一档增幅超过 10%，建议保留当前重量。');
+  if(availableKg>last.kg*1.1+1e-9)return message('step',note+'下一档增幅超过 10%。沿用当前重量和计划次数，保持动作稳定；有合适的小档位时再核对。');
   return message('raise',note+'两次均达标，建议下一场试每手 '+availableKg+' kg。',target(availableKg,last.variant));
 }

@@ -245,7 +245,8 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
         ${advice?`<p class="muted">${esc(advice.text)}</p>${advice.target?.variant===plateVariant&&advice.target.load==='单只 1.25 kg'?'<button class="inline" id="usePlateStart" type="button">本组用 1.25 kg 配重片</button>':''}`:''}
         ${weighted&&(actualVariant!==plan.variant||[plateVariant,bottleVariant].includes(actualVariant))?`<p class="muted">${esc(actualVariant)}</p>`:''}
         ${standardWeightInput?`${weight?`<details><summary>单只 ${weight} kg · 更改重量</summary>`:''}<label class="journal-field" for="quickWeight">单只重量（kg）<input class="text-input" id="quickWeight" inputmode="decimal" maxlength="12" value="${weight}"></label>${weight?'</details>':''}`:`<p class="muted">${esc(load)}</p>`}
-        <label class="journal-field" for="quickReps">${plan.sides?'每侧完成次数':'实际次数'}<input class="text-input" id="quickReps" inputmode="numeric" maxlength="3" value="${recorded??''}"></label>
+        <label class="journal-field" for="quickReps"><span id="quickRepLabel">${plan.sides?'每侧完成次数':'实际次数'}</span><input class="text-input" id="quickReps" inputmode="numeric" maxlength="3" value="${recorded??''}"></label>
+        ${plan.sides?'<label><input type="checkbox" id="differentSides"> 左右次数不同</label><div id="rightSideField" hidden><label class="journal-field" for="quickRight">右侧完成次数<input class="text-input" id="quickRight" inputmode="numeric" maxlength="3"></label></div>':''}
         ${weighted||lastGroup?`<details><summary>${lastGroup?'填写余力（可选）':'动作反馈（可选）'}</summary>${lastGroup?select('rir','还能规范做几次',current.rir,'rir'):''}${weighted?select('quality','本组动作质量',current.quality,'quality'):''}</details>`:''}
         <button class="btn" type="submit">${lastGroup?(followUp?'完成，下一动作':'结束，查看本场'):'记下，下一组'}</button>
       </form>
@@ -259,6 +260,11 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     $('quickSetDetails').onclick=()=>openExercise(sessionId,exerciseId,index);
     if(index)$('quickSetBack').onclick=()=>openQuickSet(sessionId,exerciseId,index-1);
     const form=$('quickSetForm');
+    if(plan.sides)$('differentSides').onchange=()=>{
+      const different=$('differentSides').checked;
+      $('quickRepLabel').textContent=different?'左侧完成次数':'每侧完成次数';
+      $('rightSideField').hidden=!different;
+    };
     if($('usePlateStart'))$('usePlateStart').onclick=()=>{
       actualVariant=plateVariant;$('quickWeight').value='1.25';
       $('usePlateStart').textContent='已选每手持片';$('quickReps').focus();
@@ -267,9 +273,13 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
       event.preventDefault();
       if(!form.isConnected)return;
       const reps=$('quickReps').value.trim();
+      const different=plan.sides&&$('differentSides').checked;
+      const right=different?$('quickRight').value.trim():reps;
       const weightInput=$('quickWeight');
       const rawWeight=weightInput?.value.trim().replace(',','.')||'';
-      const issues=!/^\d{1,3}$/.test(reps)||Number(reps)>600?['次数请填写 0–600 的整数',$('quickReps')]:
+      const validCount=v=>/^\d{1,3}$/.test(v)&&Number(v)<=600;
+      const issues=!validCount(reps)&&!(different&&reps===''&&validCount(right))?['次数请填写 0–600 的整数',$('quickReps')]:
+        different&&right!==''&&!validCount(right)?['右侧次数请填写 0–600 的整数',$('quickRight')]:
         rawWeight&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(rawWeight)?['重量请输入数字，单位为公斤',weightInput]:null;
       if(issues){
         const [message,field]=issues;
@@ -287,7 +297,7 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
           throw Error('本场或本动作的记录已变化，请先核对最新记录');
         }
         const updated=copy(latestLog?.fields.rows||rows);
-        Object.assign(updated[index],plan.sides?{left:Number(reps),right:Number(reps)}:{reps:Number(reps)});
+        Object.assign(updated[index],plan.sides?{left:reps===''?null:Number(reps),right:right===''?null:Number(right)}:{reps:Number(reps)});
         if(weightInput&&rawWeight)updated[index].load=Number(rawWeight)===weight?load:'单只 '+Number(rawWeight)+' kg';
         else updated[index].load=weightInput?plan.load:load;
         updated[index].variant=actualVariant;
@@ -393,7 +403,7 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
         <summary>${esc(p.name)}</summary>
         ${strength&&!p.paused?`<section><p data-advice="${i}">${esc(suggestions[i].text)}</p>
           ${['dbrow','rdl','lateral','rear'].includes(p.id)?`
-          <label ${['ready','raise','lower','step'].includes(suggestions[i].kind)?'':'hidden'}>可用档位实称重量（单只 kg）<input class="text-input" inputmode="decimal" data-available="${i}" maxlength="12"></label>
+          <label ${['ready','raise','lower','step','measure'].includes(suggestions[i].kind)?'':'hidden'}>${suggestions[i].kind==='measure'?'原器械实称重量':'可用档位实称重量'}（单只 kg）<input class="text-input" inputmode="decimal" data-available="${i}" maxlength="12"></label>
           <button type="button" class="inline" data-adopt="${i}" ${suggestions[i].target?'':'hidden'}>将建议带入预览草稿</button>`:''}</section>`:''}
         <label class="journal-field"><span><input type="checkbox" data-paused="${i}" ${p.paused?'checked':''}> 暂停这个动作</span></label>
         ${input(i+'-pauseReason','暂停说明（可选）',p.pauseReason)}

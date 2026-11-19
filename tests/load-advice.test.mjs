@@ -65,13 +65,21 @@ test('exclude other stages, deleted entries, and dates after the review',()=>{
 });
 test('unambiguous per-hand text and untouched extra rows preserve a usable baseline',()=>{
   const {add,advice}=fixture();
-  const rows=blankRows(plan).map(r=>({...r,reps:16,load:'左右各 ４ 公斤',rir:'2'}));
+  const rows=blankRows(plan).map(r=>({...r,reps:16,load:'左右手各 ４ 公斤',rir:'2'}));
   add(asOf,4,{exercise:{rows:[...rows,...blankRows(plan).slice(0,1)]}});
   assert.equal(advice().kind,'hold');
   assert.equal(advice().target?.load,'单只 4 kg');
   for(const load of ['总重 4 kg','每端 4 kg','每支 4 kg 配重，不含杆','4','各 4 斤']){
     rows[0].load=load;assert.equal(advice().target,null);
   }
+});
+test('ambiguous left/right weight needs a measured single implement, once only',()=>{
+  const {add,advice}=fixture();
+  add(asOf,4,{row:{variant:plan.variant,load:'左右各 4 kg'}});
+  assert.equal(advice().kind,'measure');
+  assert.equal(advice().target,null);
+  assert.equal(advice(4.2).target.load,'单只 4.2 kg');
+  assert.equal(advice(undefined,{...plan,load:'单只 4.2 kg'}).target,null);
 });
 test('fatigue with an explicit per-hand load can propose the lighter plate variant for calibration',()=>{
   const {add,advice}=fixture();
