@@ -21,3 +21,25 @@ test('resolved journal conflicts archive both sides and do not recur on next syn
 test('offline journal reload and later second-device synchronization retain all feedback',async()=>{const data=new Map(),disk={getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v)};const a=new SyncStore({storage:disk,key:'a',initial:fresh()}),{s,id}=setup();const se=add(s);writeEntry(s,se,'session',{status:'partial',reason:'30分钟到',recoveryStatus:'mild',recoveryDate:'2026-10-14'});writeEntry(s,'daily:2026-10-13','daily',{date:'2026-10-13',lunch:'米饭鸡肉',cost:25});a.edit(s);await assert.rejects(a.sync(async()=>{throw Error('offline')}));const reload=new SyncStore({storage:disk,key:'a',initial:fresh()});let remote=null;const t=async(m,v)=>m==='GET'?{state:remote,revision:remote?1:0}:(remote=clone(v.state),{revision:1});await reload.sync(t);const b=new SyncStore({storage:disk,key:'b',initial:fresh()});await b.sync(t);assert.equal(b.data.local.journal.entries[se].fields.recoveryStatus,'mild');assert.match(trialMarkdown(b.data.local,id,'2026-10-25'),/30分钟到/);assert.match(trialMarkdown(b.data.local,id,'2026-10-25'),/米饭鸡肉/);});
 test('review includes raw facts, missing coverage, actual-date references and incomplete evidence',()=>{const {s,id}=setup(),se=add(s);writeEntry(s,se,'session',{status:'partial',pain:'yes',painNotes:'手腕不适',reason:'提前停止'});writeEntry(s,'daily:2026-10-13','daily',{date:'2026-10-13',cost:28,purchase:80,hunger:'hungry',lunch:'包装260克，实际吃一半'});const md=trialMarkdown(s,id,'2026-10-25');assert.match(md,/证据不足/);assert.match(md,/次日恢复已填：0\/1/);assert.match(md,/28.0元/);assert.match(md,/采购付款：80/);assert.match(md,/手腕不适/);assert.match(md,/实际吃一半/);assert.match(md,new RegExp(se));assert.equal(trialSummary(s,id,'2026-10-25').complete,0);});
 test('journal validation rejects invalid choices, corrupt rows and unsafe field names',()=>{const {s}=setup(),id=add(s),key=exerciseEntryId(id,'push');let bad=clone(s.journal);bad.entries[key].fields.rows[0].reps=-1;assert.throws(()=>validateJournal(bad));bad=clone(s.journal);bad.entries[key].fields.rows[0].reps=Infinity;assert.throws(()=>validateJournal(bad));bad=clone(s.journal);bad.settings=JSON.parse('{"__proto__":{"polluted":true}}');assert.throws(()=>validateJournal(bad));});
+
+test('historical unequal sides and independent device edits retain both row snapshots', () => {
+  const {s} = setup();
+  const sessionId = startSession(s, {date: '2026-10-13'});
+  const plan = entry(s, sessionId).fields.plan.find(item => item.id === 'split');
+  const key = exerciseEntryId(sessionId, plan.id);
+  const rows = blankRows(plan);
+  Object.assign(rows[0], {left: 12, right: 10, rest: 75, load: 'single 5 kg'});
+  writeEntry(s, key, 'exercise', {sessionId, exerciseId: plan.id, rows});
+  const restored = validateBackup(JSON.parse(JSON.stringify(s)));
+  assert.deepEqual(entry(restored, key).fields.rows, rows);
+  const phone = clone(restored), tablet = clone(restored);
+  const phoneRows = clone(rows), tabletRows = clone(rows);
+  Object.assign(phoneRows[1], {left: 0, right: 0});
+  tabletRows[0].right = 11;
+  writeEntry(phone, key, 'exercise', {rows: phoneRows});
+  writeEntry(tablet, key, 'exercise', {rows: tabletRows});
+  const {conflicts} = mergeStates(restored, phone, tablet);
+  assert.equal(conflicts.length, 1);
+  assert.deepEqual(conflicts[0].local, phoneRows);
+  assert.deepEqual(conflicts[0].remote, tabletRows);
+});
