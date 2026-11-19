@@ -57,11 +57,18 @@ try{
     const quickLog=Object.values((await read()).journal.entries).find(item=>item.kind==='exercise');
     assert.deepEqual(quickLog.fields.rows.map(row=>[row.left,row.right,row.load]),[[0,0,'单只 5 kg'],[10,10,'单只 6.25 kg']]);
     for(let group=0;group<8;group++){
+      if(group===4){
+        await page.click('#usePlateStart');
+        assert.equal(await page.locator('#quickWeight').inputValue(),'1.25');
+      }
+      if(group===5)assert.equal(await page.locator('#quickWeight').inputValue(),'1.25');
       await page.fill('#quickReps','8');
       if(group===7)assert.equal(await page.locator('#quickSetForm button[type=submit]').innerText(),'结束，查看本场');
       await page.click('#quickSetForm button[type=submit]');
     }
     assert.match(await page.locator('#dialogTitle').innerText(),/训练后反馈/);
+    const lateral=Object.values((await read()).journal.entries).find(item=>item.fields.exerciseId==='lateral');
+    assert.ok(lateral.fields.rows.every(row=>row.variant==='双手各握一片配重片侧平举'&&row.load==='单只 1.25 kg'));
     const quickSession=Object.values((await read()).journal.entries).find(item=>item.kind==='session');
     assert.equal(quickSession.fields.status,'draft','reaching the feedback screen does not decide session status');
     await context.setOffline(false);
@@ -230,5 +237,33 @@ try{
   assert.match(await page.locator('#reviewSessions').innerText(),new RegExp(historicalDate));
   await close();
   assert.deepEqual(await read(),beforeHistorical,'changing the review date only changes the view');
+  const lateralIndex=await page.evaluate(async()=>{
+    const {fresh}=await import('/engine.mjs');
+    const j=await import('/journal.mjs'),{plateVariant}=await import('/load-advice.mjs');
+    const state=fresh(),date=j.today(),first=j.plusDays(date,-5);
+    j.startTrial(state,{start:first,routine:'strength3-v1'});
+    const p=j.activeTrial(state).plan.find(p=>p.id==='lateral');
+    for(const day of [first,date]){
+      const id=j.startSession(state,{date:day,workout:'A'});
+      j.writeEntry(state,id,'session',{status:'complete',pain:'no'});
+      const rows=j.blankRows(p).map(row=>({...row,load:'单只 1.25 kg',variant:plateVariant,reps:p.max,rir:'2',quality:'normal'}));
+      j.writeEntry(state,j.exerciseEntryId(id,p.id),'exercise',{sessionId:id,exerciseId:p.id,rows});
+    }
+    localStorage.setItem('mantou-training-v1',JSON.stringify(state));
+    return j.activeTrial(state).plan.findIndex(exercise=>exercise.id===p.id);
+  });
+  await page.reload();await page.click('#quickReview');await page.click('#reviewLoads');
+  await page.locator('#adjustTrialForm > details').nth(lateralIndex).locator('summary').click();
+  const available=page.locator(`[data-available="${lateralIndex}"]`),adopt=page.locator(`[data-adopt="${lateralIndex}"]`);
+  const storedBefore=await read();
+  await available.fill('2.5');assert.equal(await adopt.isVisible(),false);
+  await available.fill('1.35');await adopt.click();
+  await page.click('#adjustTrialForm button[type=submit]');
+  assert.deepEqual(await read(),storedBefore);
+  await page.click('#confirmAdjust');await page.reload();
+  const storedAfter=await read(),active=storedAfter.journal.trials[storedAfter.journal.settings.activeTrial];
+  assert.equal(active.plan[lateralIndex].load,'单只 1.35 kg');
+  assert.deepEqual(storedAfter.journal.entries,storedBefore.journal.entries);
+  console.log('PASS two-week load advice: large step withheld, confirmation persists, old sessions preserved');
   assert.deepEqual(errors,[]);
 }finally{await browser?.close();server?.kill();}

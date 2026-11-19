@@ -1,4 +1,5 @@
 import {countedGroups,journalIcon,planCard} from './journal-cards.mjs';
+import {loadAdvice,plateVariant,bottleVariant,rodSetup,starts} from './load-advice.mjs';
 import {exerciseDemoList,exerciseDemoHTML,bindExerciseDemo} from './exercise-demos.mjs';
 import {STRENGTH_ROUTINE,STRENGTH_PLAN,WORKOUTS,isStrength,defaultWorkout,workoutPlan} from './strength-plan.mjs';
 import {sleepSection,bindSleepImport,bindHealthConnectImport} from './sleep-ui.mjs';
@@ -223,7 +224,9 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     const recorded=plan.sides?current.left:current.reps;
     const previousCount=plan.sides&&previous?.left!==previous?.right?null:plan.sides?previous?.left:previous?.reps;
     const weighted=['dbrow','rdl','lateral','rear'].includes(exerciseId);
-    const canReuseLoad=recorded==null&&current.load===plan.load&&previous&&previous.variant===current.variant;
+    const followsPlate=exerciseId==='lateral'&&previous?.variant===plateVariant&&current.variant===plan.variant;
+    const canReuseLoad=recorded==null&&current.load===plan.load&&previous&&(previous.variant===current.variant||followsPlate);
+    let actualVariant=canReuseLoad?previous.variant:current.variant;
     const load=canReuseLoad?previous.load||current.load:current.load;
     const weight=/^单只 (\d+(?:\.\d+)?) kg$/.exec(load||'')?.[1]||'';
     const standardWeightInput=weighted&&(!load||load===plan.load||!!weight);
@@ -236,9 +239,12 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     modal(plan.name,`
       <p class="muted">第 ${index+1} / ${plan.sets} 组 · 目标 ${plan.sides?'每侧 ':''}${plan.min}–${plan.max} 次${previousCount!=null?' · 上组 '+previousCount+' 次':''}</p>
       <form id="quickSetForm" class="set-card quick-set" novalidate>
+        ${weighted&&load===rodSetup?`<p class="muted">${esc(rodSetup)}。请称整只后填写。</p>`:''}
+        ${weighted&&!index&&!weight&&standardWeightInput&&load==='待填写每只哑铃重量'?`<p class="muted">${esc(starts[exerciseId])}</p>${exerciseId==='lateral'?'<button class="inline" id="usePlateStart" type="button">本组用 1.25 kg 配重片</button>':''}`:''}
+        ${weighted&&(actualVariant!==plan.variant||[plateVariant,bottleVariant].includes(actualVariant))?`<p class="muted">${esc(actualVariant)}</p>`:''}
         ${standardWeightInput?`${weight?`<details><summary>单只 ${weight} kg · 更改重量</summary>`:''}<label class="journal-field" for="quickWeight">单只重量（kg）<input class="text-input" id="quickWeight" inputmode="decimal" maxlength="12" value="${weight}"></label>${weight?'</details>':''}`:`<p class="muted">${esc(load)}</p>`}
         <label class="journal-field" for="quickReps">${plan.sides?'每侧完成次数':'实际次数'}<input class="text-input" id="quickReps" inputmode="numeric" maxlength="3" value="${recorded??''}"></label>
-        ${lastGroup?`<details><summary>填写余力（可选）</summary>${select('rir','还能规范做几次',current.rir,'rir')}</details>`:''}
+        ${weighted||lastGroup?`<details><summary>${lastGroup?'填写余力（可选）':'动作反馈（可选）'}</summary>${lastGroup?select('rir','还能规范做几次',current.rir,'rir'):''}${weighted?select('quality','本组动作质量',current.quality,'quality'):''}</details>`:''}
         <button class="btn" type="submit">${lastGroup?(followUp?'完成，下一动作':'结束，查看本场'):'记下，下一组'}</button>
       </form>
       <details class="exercise-help"><summary>动作示范与要点</summary><p>${esc(plan.cue.replace('左右分别做2组、分别记录。','两侧各做相同组数，次数一致时填一次。').replace('左右分别记录。','两侧次数一致时填一次。'))}</p>${exerciseDemoHTML(exerciseId)}</details>
@@ -251,6 +257,10 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     $('quickSetDetails').onclick=()=>openExercise(sessionId,exerciseId,index);
     if(index)$('quickSetBack').onclick=()=>openQuickSet(sessionId,exerciseId,index-1);
     const form=$('quickSetForm');
+    if($('usePlateStart'))$('usePlateStart').onclick=()=>{
+      actualVariant=plateVariant;$('quickWeight').value='1.25';
+      $('usePlateStart').textContent='已选每手持片';$('quickReps').focus();
+    };
     form.onsubmit=event=>{
       event.preventDefault();
       if(!form.isConnected)return;
@@ -277,6 +287,8 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
         const updated=copy(latestLog?.fields.rows||rows);
         Object.assign(updated[index],plan.sides?{left:Number(reps),right:Number(reps)}:{reps:Number(reps)});
         updated[index].load=weightInput?(rawWeight?'单只 '+Number(rawWeight)+' kg':plan.load):load;
+        updated[index].variant=actualVariant;
+        if(weighted)updated[index].quality=form.querySelector('[data-field=quality]').value;
         if(lastGroup)updated[index].rir=form.querySelector('[data-field=rir]').value;
         writeEntry(s,id,'exercise',{sessionId,exerciseId,rows:updated});
       },{requireCurrentAccountCache:true});
@@ -351,12 +363,14 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
         </div>
       </div>
       ${discomfortNotice}
+      ${strength&&id===trial()?.id&&asOf===today()?'<button type="button" class="inline" id="reviewLoads">查看近 14 天负重建议</button>':''}
       <details id="reviewSessions" class="training-disclosure"><summary>${journalIcon('recovery')}逐场记录与反馈 ${journalIcon('down')}</summary>${sessionRecords}</details>
       <details id="reviewDaily" class="training-disclosure"><summary>${journalIcon('review')}睡眠与饮食记录 ${journalIcon('down')}</summary>${dailyRecords}</details>
       <details id="reviewMissing" class="training-disclosure training-plan-details"><summary>待补记录 ${journalIcon('down')}</summary><p>${missing.length?'尚无每日记录：'+missing.join('、')+'。':'本范围每天都有记录，具体字段仍可能未填。'}</p><p>${feedback.length?feedback.length+' 场疼痛或恢复反馈未填。':q.list.length?'当前场次疼痛与恢复反馈已填写。':'暂无训练场次反馈。'}</p><p class="muted">保持或调整待本人确认；不同动作版本与负重分开比较。</p></details>
     </section>`;
     modal(title,`${summary}<button class="btn secondary review-export" id="downloadTrialPhotos">${journalIcon('download')}导出复盘＋照片 ZIP</button><details id="reviewDetails"><summary>文字导出与完整原文</summary><button class="btn secondary" id="downloadTrial">仅导出文字 Markdown</button><button class="btn secondary" id="copyTrial">复制复盘全文</button><pre class="review-preview">${esc(text)}</pre></details>`,'训练复盘');
     $('journalSave').hidden=true;
+    if($('reviewLoads'))$('reviewLoads').onclick=openAdjust;
     const datePicker=$('dialogContent').querySelector('[data-field=reviewDate]');
     if(datePicker)datePicker.onchange=()=>{
       if(datePicker.checkValidity()&&dateOK(datePicker.value))openReview(id,datePicker.value);
@@ -367,10 +381,17 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
   }
   function openAdjust(){
     const t=trial();if(!t)return;
+    const strength=isStrength(t);
+    const adviceAt=(i,kg)=>loadAdvice(state(),t,t.plan[i],today(),kg);
+    const suggestions=strength?t.plan.map((_,i)=>adviceAt(i)):[];
     modal('调整后续训练安排',`<form id="adjustTrialForm">
       <p class="hint">仅影响以后新建的场次，已开始场次和旧记录保留当时目标。</p>
       ${t.plan.map((p,i)=>`<details>
         <summary>${esc(p.name)}</summary>
+        ${strength&&!p.paused?`<section><p data-advice="${i}">${esc(suggestions[i].text)}</p>
+          ${['dbrow','rdl','lateral','rear'].includes(p.id)?`
+          <label ${['ready','raise','lower','step'].includes(suggestions[i].kind)?'':'hidden'}>可用档位实称重量（单只 kg）<input class="text-input" inputmode="decimal" data-available="${i}" maxlength="12"></label>
+          <button type="button" class="inline" data-adopt="${i}" ${suggestions[i].target?'':'hidden'}>将建议带入预览草稿</button>`:''}</section>`:''}
         <label class="journal-field"><span><input type="checkbox" data-paused="${i}" ${p.paused?'checked':''}> 暂停这个动作</span></label>
         ${input(i+'-pauseReason','暂停说明（可选）',p.pauseReason)}
         <div class="journal-columns">
@@ -394,8 +415,33 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
       const entered=value(i+'-'+key);
       return entered===initialText[i][key]?original:entered;
     };
+    const adopted=new Map();
+    for(const field of form.querySelectorAll('[data-available]')){
+      const i=Number(field.dataset.available),button=form.querySelector(`[data-adopt="${i}"]`);
+      const evaluate=()=>{
+        const raw=field.value.trim().replace(',','.');
+        if(raw&&(!/^\d+(?:\.\d+)?$/.test(raw)||Number(raw)<=0))return {text:'请填写实称的单只公斤数，例如 3.25。',target:null};
+        return adviceAt(i,raw?Number(raw):undefined);
+      };
+      field.oninput=()=>{
+        const advice=evaluate();
+        form.querySelector(`[data-advice="${i}"]`).textContent=advice.text;
+        button.hidden=!advice.target;
+      };
+      button.onclick=()=>{
+        const advice=evaluate();if(!advice.target)return;
+        for(const [key,v] of Object.entries(advice.target))form.querySelector(`[data-field="${i}-${key}"]`).value=v;
+        adopted.set(i,{evaluate,target:advice.target});
+        const reason=form.querySelector('[data-field=reason]');
+        if(!reason.value.trim())reason.value='核对近 14 天训练记录后调整负重';
+        status.textContent='已填入草稿。请点「预览改动」核对。';
+      };
+    }
     const checkContext=()=>{
       if(trial()!==t)throw Error('当前训练数据已更新，请关闭后重新预览。');
+      for(const {evaluate,target} of adopted.values()){
+        if(JSON.stringify(evaluate().target)!==JSON.stringify(target))throw Error('负重建议依据已变化，请关闭后重新核对。');
+      }
     };
     const display=v=>typeof v==='boolean'?(v?'暂停':'继续训练'):esc(v===''?'未填写':v);
     status.textContent='先预览改动，再确认保存。';
