@@ -13,9 +13,11 @@ export const starts={
 };
 const weighted=new Set(['dbrow','rdl','rear','lateral']);
 const formatted=kg=>'单只 '+kg+' kg';
-const kgOf=text=>{
-  const match=/^单只 (\d+(?:\.\d+)?) kg$/.exec(text);
-  return match&&Number(match[1])>0?Number(match[1]):null;
+export const kgOf=text=>{
+  const normalized=String(text??'').normalize('NFKC').trim();
+  const match=/^(?:单只|每只|每支|每手|左右各|左右手各)\s*(\d+(?:\.\d+)?)\s*(?:kg|公斤|千克)$/i.exec(normalized);
+  const kg=match?Number(match[1]):null;
+  return Number.isFinite(kg)&&kg>0?kg:null;
 };
 export function loadAdvice(state,trial,plan,date,availableKg){
   const message=(kind,text,target=null)=>({kind,text,target});
@@ -30,7 +32,8 @@ export function loadAdvice(state,trial,plan,date,availableKg){
     const snapshot=f.plan.find(p=>p.id===plan.id);
     if(!snapshot||snapshot.paused)continue;
     const log=entry(state,exerciseEntryId(se.id,plan.id))?.fields;
-    const rows=log?.rows||[];
+    const rows=(log?.rows||[]).filter((r,i)=>i<snapshot.sets||hasActual(r)||r.quality||r.rir||r.rest!=null||
+      r.variant!==snapshot.variant||r.load!==snapshot.load);
     if(!rows.some(r=>r.quality==='pain')&&(!rows.some(hasActual)||['equipment','skipped'].includes(log?.exerciseStatus)))continue;
     for(const row of rows){
       const actual=kgOf(row.load);
@@ -52,7 +55,9 @@ export function loadAdvice(state,trial,plan,date,availableKg){
     const qualifies=same&&f.status==='complete'&&f.pain==='no'&&!pain&&!struggling&&log.exerciseStatus!=='partial'
       &&rows.length===plan.sets&&rows.every(r=>count(r)>=plan.max&&r.quality==='normal'&&r.rir!=='0')
       &&['2','4'].includes(rows.at(-1).rir);
-    observations.push({date:f.date,pain,kg,variant,same,struggling,qualifies});
+    const baseline=same&&f.status==='complete'&&f.pain==='no'&&!pain&&!struggling&&log.exerciseStatus!=='partial'
+      &&rows.length===plan.sets&&rows.every(r=>count(r)>=plan.min)&&['2','4'].includes(rows.at(-1).rir);
+    observations.push({date:f.date,pain,kg,variant,same,struggling,qualifies,baseline});
   }
   const [last,previous]=observations;
   const configured=kgOf(plan.load);
@@ -74,11 +79,14 @@ export function loadAdvice(state,trial,plan,date,availableKg){
   }
   if(last.struggling){
     const lighter=Number.isFinite(availableKg)&&availableKg>0&&availableKg<last.kg;
+    if(availableKg==null&&plan.id==='lateral'&&last.kg>1.25&&[plateVariant,'双臂可控侧平举'].includes(last.variant)){
+      return message('lower',note+'本次反馈吃力。可换为每手握一片 1.25 kg 重新校准，单独记录持片表现。',target(1.25,plateVariant));
+    }
     return message('lower',note+'动作质量下降或接近力竭仍未达下限，可试更轻的可用档。',lighter?target(availableKg,last.variant):null);
   }
   if(!last.qualifies||!previous?.qualifies||previous.kg!==last.kg||previous.variant!==last.variant||previous.date===last.date){
     return message('hold',note+'先维持。升档需两个不同日期同档达标，动作稳定、无疼痛且末组有余力。',
-      last.qualifies&&plan.load==='待填写每只哑铃重量'?target(last.kg,last.variant):null);
+      last.baseline&&['待填写每只哑铃重量',rodSetup].includes(plan.load)?target(last.kg,last.variant):null);
   }
   if(!Number.isFinite(availableKg)||availableKg<=last.kg)return message('ready',note+'两次均达标，可核对下一档的实际单只重量。');
   if(availableKg>last.kg*1.1+1e-9)return message('step',note+'下一档增幅超过 10%，建议保留当前重量。');

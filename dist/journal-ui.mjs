@@ -1,5 +1,5 @@
 import {countedGroups,journalIcon,planCard} from './journal-cards.mjs';
-import {loadAdvice,plateVariant,bottleVariant,rodSetup,starts} from './load-advice.mjs';
+import {loadAdvice,plateVariant,bottleVariant,rodSetup,kgOf} from './load-advice.mjs';
 import {exerciseDemoList,exerciseDemoHTML,bindExerciseDemo} from './exercise-demos.mjs';
 import {STRENGTH_ROUTINE,STRENGTH_PLAN,WORKOUTS,isStrength,defaultWorkout,workoutPlan} from './strength-plan.mjs';
 import {sleepSection,bindSleepImport,bindHealthConnectImport} from './sleep-ui.mjs';
@@ -228,8 +228,10 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     const canReuseLoad=recorded==null&&current.load===plan.load&&previous&&(previous.variant===current.variant||followsPlate);
     let actualVariant=canReuseLoad?previous.variant:current.variant;
     const load=canReuseLoad?previous.load||current.load:current.load;
-    const weight=/^单只 (\d+(?:\.\d+)?) kg$/.exec(load||'')?.[1]||'';
+    const weight=kgOf(load)??'';
     const standardWeightInput=weighted&&(!load||load===plan.load||!!weight);
+    const advice=weighted&&index===0&&recorded==null&&load==='待填写每只哑铃重量'
+      ?loadAdvice(state(),trial(),plan,session.fields.date):null;
     const lastGroup=index===plan.sets-1;
     const followUp=planOrder.some(item=>{
       if(item.id===exerciseId||item.paused)return false;
@@ -240,7 +242,7 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
       <p class="muted">第 ${index+1} / ${plan.sets} 组 · 目标 ${plan.sides?'每侧 ':''}${plan.min}–${plan.max} 次${previousCount!=null?' · 上组 '+previousCount+' 次':''}</p>
       <form id="quickSetForm" class="set-card quick-set" novalidate>
         ${weighted&&load===rodSetup?`<p class="muted">${esc(rodSetup)}。请称整只后填写。</p>`:''}
-        ${weighted&&!index&&!weight&&standardWeightInput&&load==='待填写每只哑铃重量'?`<p class="muted">${esc(starts[exerciseId])}</p>${exerciseId==='lateral'?'<button class="inline" id="usePlateStart" type="button">本组用 1.25 kg 配重片</button>':''}`:''}
+        ${advice?`<p class="muted">${esc(advice.text)}</p>${advice.target?.variant===plateVariant&&advice.target.load==='单只 1.25 kg'?'<button class="inline" id="usePlateStart" type="button">本组用 1.25 kg 配重片</button>':''}`:''}
         ${weighted&&(actualVariant!==plan.variant||[plateVariant,bottleVariant].includes(actualVariant))?`<p class="muted">${esc(actualVariant)}</p>`:''}
         ${standardWeightInput?`${weight?`<details><summary>单只 ${weight} kg · 更改重量</summary>`:''}<label class="journal-field" for="quickWeight">单只重量（kg）<input class="text-input" id="quickWeight" inputmode="decimal" maxlength="12" value="${weight}"></label>${weight?'</details>':''}`:`<p class="muted">${esc(load)}</p>`}
         <label class="journal-field" for="quickReps">${plan.sides?'每侧完成次数':'实际次数'}<input class="text-input" id="quickReps" inputmode="numeric" maxlength="3" value="${recorded??''}"></label>
@@ -286,7 +288,8 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
         }
         const updated=copy(latestLog?.fields.rows||rows);
         Object.assign(updated[index],plan.sides?{left:Number(reps),right:Number(reps)}:{reps:Number(reps)});
-        updated[index].load=weightInput?(rawWeight?'单只 '+Number(rawWeight)+' kg':plan.load):load;
+        if(weightInput&&rawWeight)updated[index].load=Number(rawWeight)===weight?load:'单只 '+Number(rawWeight)+' kg';
+        else updated[index].load=weightInput?plan.load:load;
         updated[index].variant=actualVariant;
         if(weighted)updated[index].quality=form.querySelector('[data-field=quality]').value;
         if(lastGroup)updated[index].rir=form.querySelector('[data-field=rir]').value;

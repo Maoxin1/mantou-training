@@ -63,3 +63,29 @@ test('exclude other stages, deleted entries, and dates after the review',()=>{
   add(asOf).deleted=true;add('2026-11-20');
   assert.equal(advice().kind,'start');
 });
+test('unambiguous per-hand text and untouched extra rows preserve a usable baseline',()=>{
+  const {add,advice}=fixture();
+  const rows=blankRows(plan).map(r=>({...r,reps:16,load:'左右各 ４ 公斤',rir:'2'}));
+  add(asOf,4,{exercise:{rows:[...rows,...blankRows(plan).slice(0,1)]}});
+  assert.equal(advice().kind,'hold');
+  assert.equal(advice().target?.load,'单只 4 kg');
+  for(const load of ['总重 4 kg','每端 4 kg','每支 4 kg 配重，不含杆','4','各 4 斤']){
+    rows[0].load=load;assert.equal(advice().target,null);
+  }
+});
+test('fatigue with an explicit per-hand load can propose the lighter plate variant for calibration',()=>{
+  const {add,advice}=fixture();
+  add(asOf,4,{row:{variant:plan.variant,load:'每支 4kg',rir:'0',quality:'fatigue'}});
+  assert.equal(advice().kind,'lower');
+  assert.deepEqual(advice().target,{load:'单只 1.25 kg',variant:plateVariant});
+  assert.equal(advice(4.5).target,null);
+});
+test('extra work, a zero, or a pain marker in an extra row cannot be discarded as empty',()=>{
+  for(const extra of [{reps:0},{rir:'unknown'},{quality:'pain'}]){
+    const {add,advice}=fixture();add('2026-11-16');
+    const rows=blankRows(plan).map(r=>({...r,variant:plateVariant,reps:20,load:'每手1.25kg',rir:'2',quality:'normal'}));
+    add(asOf,1.25,{exercise:{rows:[...rows,{...blankRows(plan)[0],...extra}]}});
+    assert.equal(advice(1.3).target,null);
+    if(extra.quality)assert.equal(advice().kind,'check');
+  }
+});

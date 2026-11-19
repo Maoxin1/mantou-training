@@ -246,7 +246,8 @@ try{
     for(const day of [first,date]){
       const id=j.startSession(state,{date:day,workout:'A'});
       j.writeEntry(state,id,'session',{status:'complete',pain:'no'});
-      const rows=j.blankRows(p).map(row=>({...row,load:'单只 1.25 kg',variant:plateVariant,reps:p.max,rir:'2',quality:'normal'}));
+      const rows=j.blankRows(p).map(row=>({...row,load:'每手 1.25 公斤',variant:plateVariant,reps:p.max,rir:'2',quality:'normal'}));
+      rows.push(j.blankRows(p)[0]);
       j.writeEntry(state,j.exerciseEntryId(id,p.id),'exercise',{sessionId:id,exerciseId:p.id,rows});
     }
     localStorage.setItem('mantou-training-v1',JSON.stringify(state));
