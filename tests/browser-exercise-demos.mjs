@@ -24,7 +24,8 @@ try{
   await page.click('#confirmStrength');
   assert.equal(await page.locator('#strengthWorkout').inputValue(),'C','Sunday uses C as the initial suggestion');
   await page.click('#beginSession');
-  await page.locator('[data-row="0"][data-key=left]').fill('10');
+  await page.fill('#quickReps','10');
+  await page.click('#quickSetForm button[type=submit]');
   await page.click('#closeDialog');
   const read=()=>page.evaluate(()=>localStorage.getItem('mantou-training-v1'));
   const cState=await read();

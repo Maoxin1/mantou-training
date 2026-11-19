@@ -22,6 +22,56 @@ try{
   if(!process.env.FOCUS_CASE||process.env.FOCUS_CASE==='training'){
     assert.equal(await page.locator('#sessionActions').getAttribute('open'),null);
     await page.click('#beginSession');
+    assert.equal(await page.locator('#quickSetForm').count(),1,'today’s strength session opens in quick entry');
+    assert.equal(await page.locator('#quickReps').inputValue(),'');
+    await page.click('#quickSetForm button[type=submit]');
+    assert.match(await page.locator('#journalSave').innerText(),/次数/);
+    await page.fill('#quickWeight','5');
+    await page.fill('#quickReps','0');
+    await page.click('#quickSetForm button[type=submit]');
+    assert.equal(await page.locator('#quickWeight').inputValue(),'5');
+    assert.equal(await page.locator('#quickReps').inputValue(),'');
+    await page.screenshot({path:'test-output/focus-quick-set.png'});
+    const quickBeforeFailure=await read();
+    await page.evaluate(()=>{
+      window.originalSetItem=Storage.prototype.setItem;
+      Storage.prototype.setItem=function(key,value){
+        if(key==='mantou-training-v1')throw new Error('模拟设备存储失败');
+        return window.originalSetItem.call(this,key,value);
+      };
+    });
+    await page.fill('#quickReps','10');await page.click('#quickSetForm button[type=submit]');
+    assert.match(await page.locator('#journalSave').innerText(),/保存失败/);
+    assert.equal(await page.locator('#quickReps').inputValue(),'10');
+    assert.deepEqual(await read(),quickBeforeFailure);
+    await page.evaluate(()=>{Storage.prototype.setItem=window.originalSetItem;delete window.originalSetItem;});
+    await page.evaluate(()=>navigator.serviceWorker.ready);
+    await context.setOffline(true);
+    await page.getByText('单只 5 kg · 更改重量',{exact:true}).click();
+    await page.fill('#quickWeight','6.25');
+    await page.click('#quickSetForm button[type=submit]');
+    assert.match(await page.locator('#dialogTitle').innerText(),/俯卧撑/);
+    await page.reload();
+    await page.click('#beginSession');
+    assert.match(await page.locator('#dialogTitle').innerText(),/俯卧撑/);
+    const quickLog=Object.values((await read()).journal.entries).find(item=>item.kind==='exercise');
+    assert.deepEqual(quickLog.fields.rows.map(row=>[row.left,row.right,row.load]),[[0,0,'单只 5 kg'],[10,10,'单只 6.25 kg']]);
+    for(let group=0;group<8;group++){
+      await page.fill('#quickReps','8');
+      if(group===7)assert.equal(await page.locator('#quickSetForm button[type=submit]').innerText(),'结束，查看本场');
+      await page.click('#quickSetForm button[type=submit]');
+    }
+    assert.match(await page.locator('#dialogTitle').innerText(),/训练后反馈/);
+    const quickSession=Object.values((await read()).journal.entries).find(item=>item.kind==='session');
+    assert.equal(quickSession.fields.status,'draft','reaching the feedback screen does not decide session status');
+    await context.setOffline(false);
+    await close();
+    await page.evaluate(async()=>{
+      const {fresh}=await import('/engine.mjs');const {startTrial,today}=await import('/journal.mjs');
+      const s=fresh();startTrial(s,{start:today(),routine:'strength3-v1'});localStorage.setItem('mantou-training-v1',JSON.stringify(s));
+    });
+    await page.reload();await page.selectOption('#strengthWorkout','A');
+    await page.click('#beginSession');await page.click('#quickSetDetails');
     assert.equal(await page.locator('#trialSetRows').count(),1,'T05-M01: start goes directly to exercise rows');
     assert.equal(await page.locator('[data-field=pain]').count(),0,'post-workout fields are not the start step');
     assert.equal(await page.locator('[data-row="0"][data-key=load]').isVisible(),true,'load is visible without expanding');
@@ -30,6 +80,7 @@ try{
     const s=await read(),log=Object.values(s.journal.entries).find(e=>e.kind==='exercise');
     assert.equal(log.fields.rows[0].left,0);assert.equal(log.fields.rows[1].left,null);
     await page.click('#beginSession');assert.match(await page.locator('#dialogTitle').innerText(),/划船/,'T05-B03: continue must not skip a partly recorded exercise');
+    assert.equal(await page.locator('#quickReps').count(),0,'a partly recorded side opens the full editor');
     await page.locator('[data-row="0"][data-key=right]').fill('0');
     await close();
     await page.getByText('第 2 组次数待填',{exact:true}).waitFor();
@@ -37,6 +88,7 @@ try{
     assert.equal(await page.getByRole('img',{name:'次数已填 1/2 组'}).count(),1);
     await page.screenshot({path:'test-output/focus-continue.png'});
     await page.click('#beginSession');
+    await page.click('#quickSetDetails');
     assert.match(await page.locator('.next-training-group legend').innerText(),/第2组/);
     const beforeFailure=await read();
     await page.evaluate(()=>{

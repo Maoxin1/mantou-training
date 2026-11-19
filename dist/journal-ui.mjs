@@ -96,7 +96,9 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     let first;
     for(const exercise of plan){
       if(exercise.paused)continue;
-      const groups=countedGroups(exercise,exerciseLog(se,exercise));
+      const log=exerciseLog(se,exercise);
+      if(['equipment','skipped'].includes(log?.fields.exerciseStatus))continue;
+      const groups=countedGroups(exercise,log);
       const pending=groups.indexOf(false);
       if(pending!==-1)return {exercise,groups,pending};
       first??={exercise,groups,pending};
@@ -106,8 +108,15 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
   function beginTraining(){
     const t=trial(),se=chosenSession();
     const next=nextExercise(currentPlan(t,se),se);
-    if(!next){notify('本次动作均已暂停，请先核对后续训练安排');return;}
-    openExercise(getOrCreateSession().id,next.exercise.id,next.pending);
+    if(!next){
+      if(se)openSession(se.id);
+      else notify('本次动作均已暂停，请先核对后续训练安排');
+      return;
+    }
+    const session=getOrCreateSession();
+    if(isStrength(state().journal.trials[session.fields.trialId])&&session.fields.date===today()&&next.pending>=0){
+      openQuickSet(session.id,next.exercise.id,next.pending);
+    }else openExercise(session.id,next.exercise.id,next.pending);
   }
   function openExerciseDemos(){
     modal('动作示范',exerciseDemoList.map(({id,title})=>
@@ -197,6 +206,86 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     modal(`${f.date} · 训练后反馈`,`${input('date','实际训练日期（可补记、改日期）',f.date,'date',`max="${today()}"`)}${input('time','实际训练时间（可选）',f.time,'time')}${select('status','本次训练状态',f.status,'status')}${input('minutes','正课实际耗时（分钟）',f.minutes,'number')}${input('sleepHours','训练前一晚睡眠（小时）',f.sleepHours,'number')}${select('pain','本次是否疼痛／明显不适',f.pain,'pain')}${area('painNotes','不适位置、出现在哪个动作',f.painNotes)}${area('reason','未训练、部分完成或提前结束的原因',f.reason)}${area('notes','训练感受与问题',f.notes)}<details><summary>补记／修改这次训练的动作</summary>${f.plan.map(p=>`<button class="btn secondary" data-session-exercise="${p.id}">${esc(p.name)}</button>`).join('')}</details><details id="recoveryFields"><summary>恢复反馈 · 下次训练前回顾，可补记</summary>${input('recoveryDate','恢复反馈日期',f.recoveryDate,'date',`max="${today()}"`)}${select('recoveryStatus','恢复与酸痛',f.recoveryStatus,'recovery')}${area('recoveryNotes','部位、持续时间、是否影响活动；近期羽毛球情况',f.recoveryNotes)}</details><button class="btn" id="journalDone">完成本次填写</button><button class="inline" id="deleteSession">删除这次误建的训练场次</button>`,'训练场次 · 可分次填写');
     bindFields(id,'session');$('dialogContent').querySelectorAll('[data-session-exercise]').forEach(b=>b.onclick=()=>openExercise(id,b.dataset.sessionExercise));$('journalDone').onclick=()=>$('exerciseDialog').close();
     $('deleteSession').onclick=()=>{if(!confirm('删除这次场次及其动作记录？删除状态会同步；已有导出备份不受影响。'))return;guard(()=>{transact(s=>{removeEntry(s,id);for(const p of f.plan)removeEntry(s,exerciseEntryId(id,p.id));});selectedSession=null;$('exerciseDialog').close();renderPlan();});};
+  }
+  function openQuickSet(sessionId,exerciseId,index){
+    const session=entry(state(),sessionId);
+    const planOrder=currentPlan(trial(),session);
+    const plan=planOrder.find(exercise=>exercise.id===exerciseId);
+    if(!session||!plan||plan.paused)return openSession(sessionId);
+    const id=exerciseEntryId(sessionId,exerciseId);
+    const log=entry(state(),id);
+    const rows=log?.fields.rows||blankRows(plan);
+    const current=rows[index];
+    if(!current||(plan.sides&&(current.left??null)!==(current.right??null))){
+      return openExercise(sessionId,exerciseId,index);
+    }
+    const previous=rows[index-1];
+    const recorded=plan.sides?current.left:current.reps;
+    const previousCount=plan.sides&&previous?.left!==previous?.right?null:plan.sides?previous?.left:previous?.reps;
+    const weighted=['dbrow','rdl','lateral','rear'].includes(exerciseId);
+    const canReuseLoad=recorded==null&&current.load===plan.load&&previous&&previous.variant===current.variant;
+    const load=canReuseLoad?previous.load||current.load:current.load;
+    const weight=/^单只 (\d+(?:\.\d+)?) kg$/.exec(load||'')?.[1]||'';
+    const standardWeightInput=weighted&&(!load||load===plan.load||!!weight);
+    const lastGroup=index===plan.sets-1;
+    const followUp=planOrder.some(item=>{
+      if(item.id===exerciseId||item.paused)return false;
+      const other=exerciseLog(session,item);
+      return !['equipment','skipped'].includes(other?.fields.exerciseStatus)&&countedGroups(item,other).includes(false);
+    });
+    modal(plan.name,`
+      <p class="muted">第 ${index+1} / ${plan.sets} 组 · 目标 ${plan.sides?'每侧 ':''}${plan.min}–${plan.max} 次${previousCount!=null?' · 上组 '+previousCount+' 次':''}</p>
+      <form id="quickSetForm" class="set-card quick-set" novalidate>
+        ${standardWeightInput?`${weight?`<details><summary>单只 ${weight} kg · 更改重量</summary>`:''}<label class="journal-field" for="quickWeight">单只重量（kg）<input class="text-input" id="quickWeight" inputmode="decimal" maxlength="12" value="${weight}"></label>${weight?'</details>':''}`:`<p class="muted">${esc(load)}</p>`}
+        <label class="journal-field" for="quickReps">${plan.sides?'每侧完成次数':'实际次数'}<input class="text-input" id="quickReps" inputmode="numeric" maxlength="3" value="${recorded??''}"></label>
+        ${lastGroup?`<details><summary>填写余力（可选）</summary>${select('rir','还能规范做几次',current.rir,'rir')}</details>`:''}
+        <button class="btn" type="submit">${lastGroup?(followUp?'完成，下一动作':'结束，查看本场'):'记下，下一组'}</button>
+      </form>
+      <details class="exercise-help"><summary>动作示范与要点</summary><p>${esc(plan.cue.replace('左右分别做2组、分别记录。','两侧各做相同组数，次数一致时填一次。').replace('左右分别记录。','两侧次数一致时填一次。'))}</p>${exerciseDemoHTML(exerciseId)}</details>
+      <div class="row quick-set-actions">
+        ${index?'<button class="inline" id="quickSetBack" type="button">返回上一组</button>':''}
+        <button class="inline" id="quickSetDetails" type="button">记录变化或补记组次</button>
+      </div>`,'逐组实际记录');
+    $('journalSave').textContent='点完成后保存本组';
+    bindExerciseDemo($('exerciseDialog'),exerciseId);
+    $('quickSetDetails').onclick=()=>openExercise(sessionId,exerciseId,index);
+    if(index)$('quickSetBack').onclick=()=>openQuickSet(sessionId,exerciseId,index-1);
+    const form=$('quickSetForm');
+    form.onsubmit=event=>{
+      event.preventDefault();
+      if(!form.isConnected)return;
+      const reps=$('quickReps').value.trim();
+      const weightInput=$('quickWeight');
+      const rawWeight=weightInput?.value.trim().replace(',','.')||'';
+      const issues=!/^\d{1,3}$/.test(reps)||Number(reps)>600?['次数请填写 0–600 的整数',$('quickReps')]:
+        rawWeight&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(rawWeight)?['重量请输入数字，单位为公斤',weightInput]:null;
+      if(issues){
+        const [message,field]=issues;
+        $('journalSave').textContent=message;$('journalSave').classList.add('error');
+        const disclosure=field.closest('details');if(disclosure)disclosure.open=true;
+        field.focus();return;
+      }
+      const result=save(s=>{
+        const latestSession=entry(s,sessionId),latestLog=entry(s,id);
+        if(!latestSession||s.journal?.entries[id]?.deleted||
+          JSON.stringify(latestSession.fields.plan.find(item=>item.id===exerciseId))!==JSON.stringify(session.fields.plan.find(item=>item.id===exerciseId))||
+          currentPlan(trial(),latestSession).find(item=>item.id===exerciseId)?.paused||
+          ['equipment','skipped'].includes(latestLog?.fields.exerciseStatus)||
+          JSON.stringify(latestLog?.fields.rows)!==JSON.stringify(log?.fields.rows)){
+          throw Error('本场或本动作的记录已变化，请先核对最新记录');
+        }
+        const updated=copy(latestLog?.fields.rows||rows);
+        Object.assign(updated[index],plan.sides?{left:Number(reps),right:Number(reps)}:{reps:Number(reps)});
+        updated[index].load=weightInput?(rawWeight?'单只 '+Number(rawWeight)+' kg':plan.load):load;
+        if(lastGroup)updated[index].rir=form.querySelector('[data-field=rir]').value;
+        writeEntry(s,id,'exercise',{sessionId,exerciseId,rows:updated});
+      },{requireCurrentAccountCache:true});
+      if(result===false)return;
+      const updatedSession=entry(state(),sessionId);
+      const next=nextExercise(currentPlan(trial(),updatedSession),updatedSession);
+      if(next?.pending>=0)openQuickSet(sessionId,next.exercise.id,next.pending);
+      else openSession(sessionId);
+    };
   }
   function openExercise(sessionId,exerciseId,pending=-1){
     const se=entry(state(),sessionId),plan=se?.fields.plan.find(e=>e.id===exerciseId);if(!plan)return;
