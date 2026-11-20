@@ -1,4 +1,4 @@
-import {label} from './journal.mjs';
+import {exerciseOutcome,label} from './journal.mjs';
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const icons={
   training:'<path d="M8 8v8m8-8v8M5 6v12m14-12v12M2 9v6m20-6v6M8 12h8"/>',
@@ -22,15 +22,16 @@ export function countedGroups(plan,log){
     return plan.sides ? row?.left!=null&&row?.right!=null : row?.reps!=null;
   });
 }
-export function planCard(e,log){
+export function planCard(e,log,loadHint=''){
   if(e.paused)return `<article class="card" data-paused-exercise="${esc(e.id)}"><div class="row start"><span class="name">${esc(e.name)}</span><span class="pill">已暂停</span></div><p class="rest-note">${esc(e.pauseReason||'等待本人确认后恢复。')}</p><p class="hint">本次不安排次数或阻力。历史记录仍可在「记录」中查看；恢复需在「调整后续训练安排」中确认。</p></article>`;
-  const status=log?.fields.exerciseStatus;
+  const status=exerciseOutcome(e,log?.fields);
   const entered=countedGroups(e,log).filter(Boolean).length;
   const count=entered?`次数已填 ${entered}/${e.sets} 组`:'';
   return `<article class="card exercise-card">
     <button class="exercise-entry" data-journal-exercise="${esc(e.id)}">
       <span class="name">${esc(e.name)}</span>
       <span class="exercise-dose">${e.sets}组 · ${e.sides?'每侧 ':''}${e.min===e.max?e.min:`${e.min}–${e.max}`}次</span>
+      ${loadHint?`<span class="exercise-progress">${esc(loadHint)}</span>`:''}
       <span class="exercise-state">${journalIcon('arrow')}</span>
       ${count||status?`<span class="exercise-progress">${[count,status&&label('exerciseStatus',status)].filter(Boolean).join(' · ')}</span>`:''}
     </button>

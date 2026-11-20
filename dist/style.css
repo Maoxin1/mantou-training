@@ -40,6 +40,8 @@ input[type=date],input[type=week],.log,.journal-log{font-size:1rem}
 .exercise-help{margin:0}.exercise-help summary{font-size:.875rem}
 .set-card{margin:12px 0;padding:14px}.set-card legend{font-size:1rem}.set-card .journal-field{margin:6px 0 12px}
 .quick-set-actions{justify-content:flex-start;flex-wrap:wrap;gap:4px 16px}
+.training-outcome{display:flex;align-items:center;gap:8px;font-weight:700}
+#quickLoad > summary{min-height:44px;box-sizing:border-box;align-content:center;font-weight:650}
 dialog{padding:20px}#journalSave{font-size:.875rem;padding:4px 0}
 .review-facts{display:flex;flex-wrap:wrap;gap:8px 20px;margin:16px 0 24px}
 .review-facts p{margin:0;color:var(--muted);font-size:.875rem}.review-facts strong{display:block;font-size:1.75rem;color:var(--ink)}

@@ -80,6 +80,13 @@ export function validateJournal(value){
       for(const r of f.rows){if(!obj(r)||!['reps','left','right','rest'].every(k=>r[k]===null||(Number.isInteger(r[k])&&r[k]>=0&&r[k]<=600))||typeof r.variant!=='string'||typeof r.load!=='string'||!['','unknown','0','2','4'].includes(r.rir)||!['','normal','form','fatigue','pain'].includes(r.quality))throw Error('备份含无效组数记录');}
     }
     const f=e.fields;
+    if(e.kind==='session'&&f.trainingClock!==undefined){
+      const clock=f.trainingClock;
+      const validTime=value=>Number.isSafeInteger(value)&&value>0&&value<=8.64e15;
+      if(!obj(clock)||!validTime(clock.startedAt)||(clock.endedAt!==undefined&&(!validTime(clock.endedAt)||clock.endedAt<clock.startedAt))){
+        throw Error('备份含无效训练计时');
+      }
+    }
     for(const meal of ['breakfast','lunch','dinner','snack'])if(f[meal+'Amount']!==undefined&&f[meal+'Amount']!==''&&!Object.hasOwn(LABELS.mealAmount,f[meal+'Amount']))throw Error('备份含无效实际食用份量');
     if(f.recoveryDate&&( !dateOK(f.recoveryDate)||f.recoveryDate<f.date))throw Error('备份中的恢复日期早于训练日期或无效');
     for(const k of ['minutes','sleepHours','weight','waist','cost','purchase','badmintonMinutes','coffeeGrams1','coffeeGrams2'])if(f[k]!==undefined&&f[k]!==null&&(typeof f[k]!=='number'||!Number.isFinite(f[k])||f[k]<0||f[k]>100000))throw Error('备份含无效反馈数值');
@@ -142,9 +149,55 @@ export function startSession(s,{date=today(),trialId=activeTrial(s)?.id,workout=
   const id=crypto.randomUUID();writeEntry(s,id,'session',{date,trialId,status:'draft',...(isStrength(t)?{workout}:{}),plan:isStrength(t)?workoutPlan(t.plan,workout):copy(t.plan)});return id;
 }
 export function exerciseEntryId(sessionId,exerciseId){return `exercise:${sessionId}:${exerciseId}`;}
+export function beginSessionClock(s,id){
+  const session=entry(s,id);
+  if(!session||session.kind!=='session')throw Error('训练场次已变化，请重新打开');
+  const f=session.fields;
+  if(f.trainingClock||f.date!==today()||f.status!=='draft'||f.minutes!=null)return session;
+  if(sessionExercises(s,session).some(({log})=>log?.fields.rows?.some(hasActual)))return session;
+  return writeEntry(s,id,'session',{trainingClock:{startedAt:Date.now()}});
+}
+export function endSessionClock(s,id){
+  const session=entry(s,id);
+  const clock=session?.fields.trainingClock;
+  if(clock&&!clock.endedAt){
+    const endedAt=Date.now();
+    if(endedAt<clock.startedAt)throw Error('设备时间早于训练开始，请核对系统时间后重试');
+    const status=session.fields.status==='draft'?sessionOutcome(s,session):session.fields.status;
+    return writeEntry(s,id,'session',{trainingClock:{...clock,endedAt},status});
+  }
+  return session;
+}
+export function sessionMinutes(fields){
+  if(fields.minutes!=null)return fields.minutes;
+  const clock=fields.trainingClock;
+  if(!clock?.endedAt)return null;
+  const elapsed=(clock.endedAt-clock.startedAt)/60_000;
+  return elapsed<=120?Math.round(elapsed*10)/10:null;
+}
 export function blankRows(e){return Array.from({length:e.sets},()=>({reps:null,left:null,right:null,variant:e.variant,load:e.load,rir:'',quality:'',rest:null}));}
 export function sessionExercises(s,session){return session.fields.plan.map(e=>({plan:e,log:entry(s,exerciseEntryId(session.id,e.id))}));}
 export function hasActual(row){return [row.reps,row.left,row.right].some(n=>typeof n==='number');}
+export function completedSets(plan,rows=[]){
+  return rows.slice(0,plan.sets).filter(row=>plan.sides?row.left>0&&row.right>0:row.reps>0).length;
+}
+export function exerciseOutcome(plan,fields={}){
+  if(fields.exerciseStatus)return fields.exerciseStatus;
+  const count=completedSets(plan,fields.rows);
+  return count===plan.sets?'done':count||fields.rows?.some(hasActual)?'partial':'';
+}
+export function sessionOutcome(s,session){
+  const actions=sessionExercises(s,session).filter(({plan})=>!plan.paused);
+  const completed=actions.map(({plan,log})=>{
+    const fields=log?.fields;
+    if(['equipment','skipped'].includes(fields?.exerciseStatus))return 0;
+    const count=completedSets(plan,fields?.rows);
+    return fields?.exerciseStatus==='partial'?Math.min(count,plan.sets-1):count;
+  });
+  if(actions.length&&actions.every(({plan},i)=>completed[i]===plan.sets))return 'complete';
+  const attempted=actions.some(({log})=>!['equipment','skipped'].includes(log?.fields.exerciseStatus)&&log?.fields.rows?.some(hasActual));
+  return attempted?'partial':'skipped';
+}
 export function sessions(s,trialId){return Object.values(s.journal?.entries||{}).filter(e=>!e.deleted&&e.kind==='session'&&(!trialId||e.fields.trialId===trialId)).sort((a,b)=>a.fields.date.localeCompare(b.fields.date)||a.created.localeCompare(b.created));}
 export function removeEntry(s,id){const j=ensureJournal(s);if(!j.entries[id])return;j.entries[id].deleted=true;j.entries[id].updated=stamp();}
 export function changePlan(s,plan,reason){
@@ -188,8 +241,8 @@ export function trialMarkdown(s,trialId=activeTrial(s)?.id,asOf=today()){
   }
   if(!groups.size)out+='尚无实际动作数据。\n';
   out+='\n## 按日期的原始记录\n\n';
-  for(const se of q.list){const f=se.fields;out+=`### ${f.date}｜${f.workout?f.workout+' · ':''}训练场次 ${se.id}\n\n- 状态：${label('status',f.status)}；实际时间${f.time||'未填写'}；正课${number(f.minutes)}分钟；训练前睡眠${number(f.sleepHours)}小时。\n- 疼痛：${label('pain',f.pain)}；位置／说明：${f.painNotes||'未填写'}。\n- 结束或未完成原因：${f.reason||'未填写'}。\n- 训练感受：${f.notes||'未填写'}。\n- 恢复反馈日期：${f.recoveryDate||'未填写'}；${label('recovery',f.recoveryStatus)}；${f.recoveryNotes||'未填写'}。\n- 保存时间：${se.updated}。\n`;
-    for(const {plan,log}of sessionExercises(s,se)){out+=`- ${plan.name}：${label('exerciseStatus',log?.fields.exerciseStatus)}；${log?.fields.notes||'无补充'}；当时目标${plan.sets}组×${plan.min}–${plan.max}次${plan.sides?'／侧':''}。\n`;}
+  for(const se of q.list){const f=se.fields;out+=`### ${f.date}｜${f.workout?f.workout+' · ':''}训练场次 ${se.id}\n\n- 状态：${label('status',f.status)}；实际时间${f.time||'未填写'}；正课${number(sessionMinutes(f))}分钟；训练前睡眠${number(f.sleepHours)}小时。\n- 疼痛：${label('pain',f.pain)}；位置／说明：${f.painNotes||'未填写'}。\n- 结束或未完成原因：${f.reason||'未填写'}。\n- 训练感受：${f.notes||'未填写'}。\n- 恢复反馈日期：${f.recoveryDate||'未填写'}；${label('recovery',f.recoveryStatus)}；${f.recoveryNotes||'未填写'}。\n- 保存时间：${se.updated}。\n`;
+    for(const {plan,log}of sessionExercises(s,se)){out+=`- ${plan.name}：${label('exerciseStatus',exerciseOutcome(plan,log?.fields))}；${log?.fields.notes||'无补充'}；当时目标${plan.sets}组×${plan.min}–${plan.max}次${plan.sides?'／侧':''}。\n`;}
     out+='\n';
   }
   for(const d of q.days){const f=d.fields;if(f.samsungSleep)out+=`- ${f.date} 导入睡眠：${sleepLine(f.samsungSleep)}。\n`;if(f.healthConnectSleep)out+=`- ${f.date} 导入睡眠：${healthConnectLine(f.healthConnectSleep)}。\n`;if(f.healthConnectSleepParts)out+=`- ${f.date} 导入睡眠：${healthConnectPartsLine(f.healthConnectSleepParts)}。\n`;if([f.samsungSleep,f.healthConnectSleep,f.healthConnectSleepParts].filter(Boolean).length>1)out+=' - 当天有多份睡眠记录，需核对。\n';out+=`### ${f.date}｜每日反馈 ${d.id}\n\n- 活动：${label('activity',f.activity)}；羽毛球${number(f.badmintonMinutes)}分钟。\n- 反馈时段：${label('feedbackScope',f.feedbackScope)}；下午饥饿：${label('afternoonHunger',f.afternoonHunger)}；胃肠感受：${label('digestion',f.digestion)}。\n- 饥饿：${label('hunger',f.hunger)}；精神：${label('energy',f.energy)}；睡眠：${label('sleep',f.sleepQuality)}。\n- 早餐：${f.breakfast||'未填写'}；实际食用：${label('mealAmount',f.breakfastAmount)}；补充：${f.breakfastNote||'未填写'}\n- 午餐：${f.lunch||'未填写'}；实际食用：${label('mealAmount',f.lunchAmount)}；补充：${f.lunchNote||'未填写'}\n- 晚餐：${f.dinner||'未填写'}；实际食用：${label('mealAmount',f.dinnerAmount)}；补充：${f.dinnerNote||'未填写'}\n- 加餐：${f.snackNote||'未填写'}；实际食用：${label('mealAmount',f.snackAmount)}\n- 加餐／份量说明：${f.foodNotes||'未填写'}\n- 当日食用成本估算：${number(f.cost)}元；当日采购付款：${number(f.purchase)}元。\n- 咖啡：${f.coffeeProduct||'产品未填写'}；第1杯${f.coffeeTime1||'时间未填'}／${number(f.coffeeGrams1)}克；第2杯${f.coffeeTime2||'时间未填'}／${number(f.coffeeGrams2)}克。\n- 体重${number(f.weight)}kg；腰围${number(f.waist)}cm；测量条件${f.measureNotes||'未填写'}。\n- 自由补充：${f.notes||'未填写'}\n- 保存时间：${d.updated}。\n\n`;}
