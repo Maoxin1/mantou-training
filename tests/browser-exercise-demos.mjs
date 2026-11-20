@@ -91,6 +91,12 @@ try{
   const cLog=Object.values(JSON.parse(cState).journal.entries).find(item=>item.kind==='exercise');
   assert.deepEqual(JSON.parse(before).journal.entries[cLog.id],cLog,'the recorded C set is preserved');
   await page.click('#beginSession');
+  const afterStart=await read();
+  const [bId,bSession]=sessions(afterStart).find(([id])=>id!==cId);
+  assert.ok(bSession.fields.trainingClock.startedAt,'explicitly beginning B starts its clock');
+  assert.equal(bSession.fields.trainingClock.endedAt,undefined);
+  assert.deepEqual(JSON.parse(afterStart).journal.entries[cId],cSession);
+  assert.deepEqual(bSession.fields.plan,JSON.parse(before).journal.entries[bId].fields.plan);
   assert.equal(await help.evaluate(el=>el.open),false);
   assert.equal(await demo.isVisible(),false);
   await toggle();
@@ -125,7 +131,7 @@ try{
   await checkStills('标准俯卧撑');
   assert.equal(await play.count(),0,'the new push-up guide uses static diagrams');
   await close();
-  assert.equal(await read(),before,'viewing and playing does not write training data');
+  assert.equal(await read(),afterStart,'viewing and playing does not write training data');
 
   await page.waitForFunction(()=>Boolean(navigator.serviceWorker.controller),null,{timeout:25000});
   assert(await page.evaluate(async()=>Boolean(await caches.match('/exercise-demos.mjs'))),'PWA shell caches the module');
@@ -149,7 +155,7 @@ try{
     await page.getByRole('button',{name:'返回动作示范',exact:true}).click();
   }
   await close();
-  assert.equal(await read(),before,'offline help preserves the same training session');
+  assert.equal(await read(),afterStart,'offline help preserves the same training session');
   assert.deepEqual(errors,[]);
   console.log('PASS TRAIN-07: all seven A/B/C exercises have diagrams that render offline; browsing leaves training records unchanged');
 }finally{

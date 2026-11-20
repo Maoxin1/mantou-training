@@ -19,6 +19,13 @@ try{
   assert.equal(await page.evaluate(()=>window.injectedMarker),undefined,'inline injection is blocked by actual HTTP CSP');
   await page.click('#startStrength');await page.click('#confirmStrength');
   await page.selectOption('#strengthWorkout','A');
+  await page.click('#sessionActions > summary');
+  assert.match(await page.locator('[data-journal-exercise="lateral"]').innerText(),/每手握一片 1\.25 kg/);
+  await page.selectOption('#strengthWorkout','B');
+  assert.match(await page.locator('[data-journal-exercise="rdl"]').innerText(),/每端 1\.25 kg/);
+  assert.match(await page.locator('[data-journal-exercise="rear"]').innerText(),/每手水瓶约 0\.5 kg/);
+  await page.selectOption('#strengthWorkout','A');
+  await page.click('#sessionActions > summary');
   if(!process.env.FOCUS_CASE||process.env.FOCUS_CASE==='training'){
     assert.equal(await page.locator('#sessionActions').getAttribute('open'),null);
     await page.click('#beginSession');
@@ -26,6 +33,17 @@ try{
     assert.equal(await page.locator('#quickReps').inputValue(),'');
     await page.click('#quickSetForm button[type=submit]');
     assert.match(await page.locator('#journalSave').innerText(),/次数/);
+    const started=(await read()).journal.entries;
+    const originalClock=Object.values(started).find(item=>item.kind==='session').fields.trainingClock;
+    assert.ok(originalClock.startedAt);
+    assert.equal(originalClock.endedAt,undefined);
+    assert.match(await page.locator('#quickLoadLabel').innerText(),/每端装 1.25 kg/);
+    await page.click('#quickLoadLabel');
+    await page.fill('#quickHandleKg','0.5');
+    assert.equal(await page.locator('#quickLoadTier option[value="rod:1"]').textContent(),'3 kg／只 · 每端 1.25 kg');
+    await page.selectOption('#quickLoadTier','rod:1');
+    assert.equal(await page.locator('#quickWeight').inputValue(),'3');
+    assert.deepEqual((await read()).journal.entries,started,'choosing a tier is a draft');
     await page.fill('#quickWeight','5');
     await page.fill('#quickReps','0');
     await page.click('#quickSetForm button[type=submit]');
@@ -47,13 +65,14 @@ try{
     await page.evaluate(()=>{Storage.prototype.setItem=window.originalSetItem;delete window.originalSetItem;});
     await page.evaluate(()=>navigator.serviceWorker.ready);
     await context.setOffline(true);
-    await page.getByText('单只 5 kg · 更改重量',{exact:true}).click();
+    await page.click('#quickLoadLabel');
     await page.fill('#quickWeight','6.25');
     await page.click('#quickSetForm button[type=submit]');
     assert.match(await page.locator('#dialogTitle').innerText(),/俯卧撑/);
     await page.reload();
     await page.click('#beginSession');
     assert.match(await page.locator('#dialogTitle').innerText(),/俯卧撑/);
+    assert.deepEqual(Object.values((await read()).journal.entries).find(item=>item.kind==='session').fields.trainingClock,originalClock);
     const quickLog=Object.values((await read()).journal.entries).find(item=>item.kind==='exercise');
     assert.deepEqual(quickLog.fields.rows.map(row=>[row.left,row.right,row.load]),[[0,0,'单只 5 kg'],[10,10,'单只 6.25 kg']]);
     for(let group=0;group<8;group++){
@@ -62,12 +81,12 @@ try{
         await page.fill('#quickRight','10');
       }
       if(group===4){
-        await page.click('#usePlateStart');
+        assert.match(await page.locator('#quickLoadLabel').innerText(),/建议 1.25 kg／手 · 直接握片/);
         assert.equal(await page.locator('#quickWeight').inputValue(),'1.25');
       }
       if(group===5)assert.equal(await page.locator('#quickWeight').inputValue(),'1.25');
       await page.fill('#quickReps','8');
-      if(group===7)assert.equal(await page.locator('#quickSetForm button[type=submit]').innerText(),'结束，查看本场');
+      if(group===7)assert.equal(await page.locator('#quickSetForm button[type=submit]').innerText(),'完成并结束训练');
       await page.click('#quickSetForm button[type=submit]');
     }
     assert.match(await page.locator('#dialogTitle').innerText(),/训练后反馈/);
@@ -76,9 +95,13 @@ try{
     assert.deepEqual(split.fields.rows.map(r=>[r.left,r.right]),[[8,10],[8,8]]);
     assert.ok(lateral.fields.rows.every(row=>row.variant==='双手各握一片配重片侧平举'&&row.load==='单只 1.25 kg'));
     const quickSession=Object.values((await read()).journal.entries).find(item=>item.kind==='session');
-    assert.equal(quickSession.fields.status,'draft','reaching the feedback screen does not decide session status');
-    await context.setOffline(false);
+    assert.equal(quickSession.fields.status,'partial','recorded zero is not a completed set');
+    assert.ok(quickSession.fields.trainingClock.endedAt>=originalClock.startedAt);
+    assert.equal(await page.locator('[data-field=status]').isVisible(),false);
     await close();
+    assert.equal(await page.locator('#trainingOutcome').innerText(),'部分完成');
+    assert.equal(await page.locator('#beginSession').innerText(),'查看本场');
+    await context.setOffline(false);
     await page.evaluate(async()=>{
       const {fresh}=await import('/engine.mjs');const {startTrial,today}=await import('/journal.mjs');
       const s=fresh();startTrial(s,{start:today(),routine:'strength3-v1'});localStorage.setItem('mantou-training-v1',JSON.stringify(s));
@@ -133,6 +156,43 @@ try{
     await close();await page.click('#todayFeedback');await page.click('[data-meal=lunch]');
     assert.equal(await page.locator('#mealAmounts select').inputValue(),'part');await close();
     console.log('PASS T05-M02: independent meal entry retains actual portion');
+  }
+  if(!process.env.FOCUS_CASE||process.env.FOCUS_CASE==='completion'){
+    await page.evaluate(async()=>{
+      const {fresh}=await import('/engine.mjs'),{startTrial,today}=await import('/journal.mjs');
+      const s=fresh();startTrial(s,{start:today(),routine:'strength3-v1'});
+      localStorage.setItem('mantou-training-v1',JSON.stringify(s));
+    });
+    await page.reload();
+    await page.selectOption('#strengthWorkout','A');
+    await page.click('#beginSession');
+    for(let i=0;i<10;i++){
+      await page.fill('#quickReps','8');
+      await page.click('#quickSetForm button[type=submit]');
+    }
+    assert.equal(await page.locator('#feedbackOutcome').innerText(),'本场 · 已完成');
+    await page.getByText('修正状态、日期或耗时',{exact:true}).click();
+    await page.locator('[data-field=minutes]').fill('18');
+    assert.match(await page.locator('#feedbackClock').innerText(),/正课 18 分钟/);
+    await close();
+    assert.equal(await page.locator('#trainingOutcome').innerText(),'训练已完成');
+    assert.match(await page.locator('#sessionClock').innerText(),/正课 18 分钟/);
+    await page.click('#newSession');
+    await page.click('#newStrengthSessionForm button[type=submit]');
+    assert.equal(await page.locator('#finishTraining').count(),0,'building a second session does not start its clock');
+    await close();
+    await page.click('#beginSession');
+    await page.fill('#quickReps','8');
+    await page.click('#quickSetForm button[type=submit]');
+    page.once('dialog',dialog=>dialog.accept());
+    await page.click('#quickFinishTraining');
+    assert.equal(await page.locator('#feedbackOutcome').innerText(),'本场 · 部分完成');
+    await close();
+    assert.equal(await page.locator('#trainingOutcome').innerText(),'部分完成');
+    const all=Object.values((await read()).journal.entries).filter(e=>e.kind==='session');
+    assert.deepEqual(all.map(e=>e.fields.status),['complete','partial']);
+    assert.ok(all.every(e=>e.fields.trainingClock.endedAt));
+    console.log('PASS: completion and early finish require no separate status, and the second clock is independent');
   }
   if(!process.env.FOCUS_CASE||process.env.FOCUS_CASE==='review'){
     const original=await read();

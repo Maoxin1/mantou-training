@@ -4,6 +4,12 @@ import {STRENGTH_PLAN} from './strength-plan.mjs';
 export const plateVariant='双手各握一片配重片侧平举';
 export const bottleVariant='坐姿俯身，每手持一瓶水反向飞鸟';
 export const rodSetup='短杆两端各一片 1.25 kg，另计杆与锁扣';
+// Identical loads on both dumbbells with 4 × 1.25 kg, 4 × 2.5 kg and 8 × 3 kg.
+export const matchingDumbbellPlates=[
+  [],[1.25],[2.5],[3],[1.25,2.5],[1.25,3],[2.5,3],[3,3],
+  [1.25,2.5,3],[1.25,3,3],[2.5,3,3],[1.25,2.5,3,3]
+];
+export const plateWeightPerDumbbell=plates=>2*plates.reduce((sum,kg)=>sum+kg,0);
 export const starts={
   dbrow:'有稳固支撑时，单只短杆两端各装一片 1.25 kg。称整只重量后填写。',
   rdl:'每只短杆两端各装一片 1.25 kg。单只重量含短杆和两个锁扣。',

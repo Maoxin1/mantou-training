@@ -1,10 +1,19 @@
 import {countedGroups,journalIcon,planCard} from './journal-cards.mjs';
-import {loadAdvice,plateVariant,bottleVariant,rodSetup,kgOf} from './load-advice.mjs';
+import {loadAdvice,plateVariant,bottleVariant,rodSetup,kgOf,matchingDumbbellPlates,plateWeightPerDumbbell} from './load-advice.mjs';
 import {exerciseDemoList,exerciseDemoHTML,bindExerciseDemo} from './exercise-demos.mjs';
 import {STRENGTH_ROUTINE,STRENGTH_PLAN,WORKOUTS,isStrength,defaultWorkout,workoutPlan} from './strength-plan.mjs';
 import {sleepSection,bindSleepImport,bindHealthConnectImport} from './sleep-ui.mjs';
 import {mealPhotoSection,bindMealPhotos,mealArchive,mealArchives,restoreMealArchive} from './meal-photos.mjs';
-import {DEFAULT_PLAN,LABELS,label,today,plusDays,dateOK,copy,activeTrial,startTrial,startSession,entry,writeEntry,exerciseEntryId,blankRows,sessions,sessionExercises,hasActual,removeEntry,changePlan,validatePlan,trialSummary,trialMarkdown} from './journal.mjs';
+import {DEFAULT_PLAN,LABELS,label,today,plusDays,dateOK,copy,activeTrial,startTrial,startSession,beginSessionClock,endSessionClock,sessionMinutes,exerciseOutcome,entry,writeEntry,exerciseEntryId,blankRows,sessions,sessionExercises,hasActual,removeEntry,changePlan,validatePlan,trialSummary,trialMarkdown} from './journal.mjs';
+const clockRunning=fields=>Boolean(fields?.trainingClock&&!fields.trainingClock.endedAt);
+const clockLabel=fields=>{
+  const clock=fields?.trainingClock;
+  if(!clock)return '';
+  const time=ms=>new Date(ms).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+  if(!clock.endedAt)return '计时中 · '+time(clock.startedAt)+' 开始';
+  const minutes=sessionMinutes(fields);
+  return time(clock.startedAt)+'–'+time(clock.endedAt)+' · '+(minutes==null?'请补填实际耗时':'正课 '+minutes+' 分钟');
+};
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $=id=>document.getElementById(id);
 function input(key,title,value,type='text',extra=''){return `<label class="journal-field"><span>${title}</span><input class="text-input" data-field="${key}" type="${type}" value="${esc(value??'')}" ${type==='number'?'min="0" max="100000" step="any"':''} ${type==='text'?'maxlength="200"':''} ${extra}></label>`;}
@@ -12,7 +21,7 @@ function area(key,title,value,placeholder=''){return `<label class="journal-fiel
 function select(key,title,value,group){return `<label class="journal-field"><span>${title}</span><select class="text-input" data-field="${key}"><option value="">未填写</option>${Object.entries(LABELS[group]).map(([v,t])=>`<option value="${v}" ${v===value?'selected':''}>${t}</option>`).join('')}</select></label>`;}
 const mealGuide=()=>`<details class="journal-guide"><summary>饮食试行安排与替换</summary><p>目标：吃得足够、支持训练和恢复，先不主动减重。预算分配需要用实际购买验证。</p><div class="meal-guide"><p><b>早餐 · 约6元</b><br>2颗鸡蛋＋红薯／燕麦／馒头＋约300毫升牛奶。</p><p><b>午餐 · 约12元</b><br>米饭／面条＋一掌心肉或鱼＋1–2拳蔬菜。外食不足时补鸡蛋、豆腐、鸡肉或部分自带。</p><p><b>晚餐 · 约10元</b><br>正常份量的主食＋一掌心肉或鱼＋约200克豆腐＋1–2拳蔬菜。肉已较多时，豆腐可移到午餐。</p><p><b>水果 · 约2元</b><br>当季水果约200–350克。咖啡费用也计入预算，优先自备。</p></div><p>主食以吃饱、支持活动为起点，不因加奶或豆腐就自动删掉原有主食。训练或打球后明显更饿，可加主食或小加餐并记录。</p><p>先详记3个代表日：普通日、力量训练日、羽毛球日。注明肉类生／熟、包装总量和实际食用量；不直接把包装克数当作纯肉量。</p><p>咖啡固定产品和粉量；杯子水量不能代表咖啡因剂量。结合睡眠、胃部和心悸等反馈调整，不用咖啡代替食物。</p><p class="hint">此模板不能保证具体热量或蛋白质达标。核对实际食物后再决定调整。<a href="https://dg.cnsoc.org/article/04/70JvPbFmTlyZbjoO67LeRg.html" target="_blank" rel="noopener">膳食指南参考</a></p></details>`;
 export function mountJournal({getState,transact,restoreRecords,notify,download,legacyPlan,legacyHistory}){
-  let selectedSession=null,selectedDate=today(),planMode=false,selectedWorkout=defaultWorkout(today());
+  let handleKg='',selectedSession=null,selectedDate=today(),planMode=false,selectedWorkout=defaultWorkout(today());
   const state=()=>getState(),trial=()=>activeTrial(state());
   const guard=fn=>{try{return fn();}catch(e){notify(e.message);return null;}};
   function modal(title,html,eyebrow='每日记录'){
@@ -81,8 +90,21 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
       });
     };
   }
-  function chosenSession(){let se=selectedSession&&entry(state(),selectedSession);if(se?.fields.trialId!==trial()?.id)se=null;return se||sessions(state(),trial()?.id).filter(e=>e.fields.date===today()).at(-1)||null;}
-  function getOrCreateSession(){let se=chosenSession();if(!se){const id=transact(s=>startSession(s,{workout:selectedWorkout}));selectedSession=id;se=entry(state(),id);}return se;}
+  function chosenSession(){
+    const activeId=trial()?.id;
+    const selected=selectedSession&&entry(state(),selectedSession);
+    if(selected&&selected.fields.trialId===activeId)return selected;
+    const recent=sessions(state(),activeId);
+    const todaysSession=recent.findLast(item=>item.fields.date===today());
+    return todaysSession||recent.findLast(item=>clockRunning(item.fields)&&Date.now()-item.fields.trainingClock.startedAt<=120*60_000)||null;
+  }
+  function getOrCreateSession(){
+    const existing=chosenSession();
+    if(existing)return existing;
+    selectedSession=transact(s=>startSession(s,{workout:selectedWorkout}),{requireCurrentAccountCache:true});
+    return entry(state(),selectedSession);
+  }
+
   function currentPlan(t,se){
     const plan=se?.fields.plan||(isStrength(t)?workoutPlan(t.plan,selectedWorkout):t?.plan||DEFAULT_PLAN);
     return plan.map(exercise=>{
@@ -90,14 +112,14 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
       return latest?.paused?{...exercise,paused:true,pauseReason:latest.pauseReason}:exercise;
     });
   }
-  function exerciseLog(se,exercise){
-    return se?entry(state(),exerciseEntryId(se.id,exercise.id)):null;
+  function exerciseLog(se,exercise,s=state()){
+    return se?entry(s,exerciseEntryId(se.id,exercise.id)):null;
   }
-  function nextExercise(plan,se){
+  function nextExercise(plan,se,s=state()){
     let first;
     for(const exercise of plan){
       if(exercise.paused)continue;
-      const log=exerciseLog(se,exercise);
+      const log=exerciseLog(se,exercise,s);
       if(['equipment','skipped'].includes(log?.fields.exerciseStatus))continue;
       const groups=countedGroups(exercise,log);
       const pending=groups.indexOf(false);
@@ -114,8 +136,18 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
       else notify('本次动作均已暂停，请先核对后续训练安排');
       return;
     }
-    const session=getOrCreateSession();
-    if(isStrength(state().journal.trials[session.fields.trialId])&&session.fields.date===today()&&next.pending>=0){
+    if(se&&(se.fields.trainingClock?.endedAt||se.fields.status==='complete'||next.pending<0))return openSession(se.id);
+    const liveStrength=isStrength(t)&&(!se||se.fields.date===today()||clockRunning(se.fields));
+    if(!se||liveStrength&&!se.fields.trainingClock&&next.pending===0){
+      selectedSession=transact(s=>{
+        const id=se?.id||startSession(s,{workout:selectedWorkout});
+        if(liveStrength)beginSessionClock(s,id);
+        return id;
+      },{requireCurrentAccountCache:true});
+      renderPlan();
+    }
+    const session=entry(state(),se?.id||selectedSession);
+    if(liveStrength&&next.pending>=0){
       openQuickSet(session.id,next.exercise.id,next.pending);
     }else openExercise(session.id,next.exercise.id,next.pending);
   }
@@ -135,11 +167,26 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     if(planMode){legacyPlan();const back=document.createElement('button');back.className='inline';back.textContent='← 返回当前训练';back.onclick=()=>{planMode=false;renderPlan();};$('main').prepend(back);return;}
     const t=trial(),strength=isStrength(t),se=t?chosenSession():null,detailsOpen=$('planDetails')?.open||false;
     const actionsOpen=$('sessionActions')?.open||false;
-    const date=se?.fields.date||today(),historical=date<today();
+    const date=se?.fields.date||today(),historical=date<today()&&!clockRunning(se?.fields);
     const plan=currentPlan(t,se),next=t?nextExercise(plan,se):null;
+    function loadHint(exercise){
+      if(!strength||exercise.paused)return '';
+      if(historical)return '当时计划 · '+exercise.load;
+      const advice=loadAdvice(state(),t,exercise,date);
+      if(advice.kind==='measure')return '待确认装好后的单只重量';
+      if(advice.kind==='check')return '有不适反馈 · 先核对';
+      if(advice.target?.variant===plateVariant)return '建议 · 每手握一片 '+kgOf(advice.target.load)+' kg';
+      if(advice.target?.variant===bottleVariant)return '建议 · 每手水瓶约 '+kgOf(advice.target.load)+' kg';
+      if(advice.target?.load===rodSetup)return '建议 · 每端 1.25 kg，另计杆和锁扣';
+      if(advice.target)return '建议 · '+advice.target.load;
+      if(advice.kind==='info')return exercise.id==='split'&&exercise.load!=='先自重，再按余力选择负重'?'计划 · '+exercise.load:advice.text;
+      return kgOf(exercise.load)?'计划 · '+exercise.load:advice.text;
+    }
     const picker=strength&&!se?`<label class="workout-picker"><span aria-hidden="true">换表 ${journalIcon('arrow')}</span>
       <select id="strengthWorkout" aria-label="换动作表">${Object.entries(WORKOUTS).map(([key,w])=>`<option value="${key}" ${key===selectedWorkout?'selected':''}>${w.title}</option>`).join('')}</select></label>`:'';
-    const resume=se&&next?`<div class="training-resume">
+    const closed=se&&(se.fields.trainingClock?.endedAt||se.fields.status==='complete');
+    const outcome=closed?({complete:'训练已完成',partial:'部分完成',skipped:'未训练'}[se.fields.status]||'本场已结束'):'';
+    const resume=se&&next&&!closed?`<div class="training-resume">
       <div><strong>${esc(next.exercise.name)}</strong><span>${next.pending===-1?'计划组次数已填':`第 ${next.pending+1} 组次数待填`}</span></div>
       <div class="training-groups" role="img" aria-label="次数已填 ${next.groups.filter(Boolean).length}/${next.groups.length} 组">
         ${next.groups.map(done=>`<span class="${done?'entered':''}">${done?journalIcon('check'):''}</span>`).join('')}
@@ -150,9 +197,10 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
       <section class="card training-hero">${t?`
         <div class="training-hero-heading"><h2>${strength?`${esc(se?.fields.workout||selectedWorkout)} · 全身力量`:'两周试行 · 全身力量'}</h2>${picker}</div>
         <p class="muted">${plan.length} 个动作 · 正课 ≤30 分钟</p>
-        ${resume}
-        ${next?'':'<p class="warning">本次动作均已暂停，请先核对后续训练安排。</p>'}
-        <button class="btn training-primary" id="beginSession">${journalIcon('training')}${se?'继续训练':'开始训练'}</button>`:`
+        ${outcome?`<p class="training-outcome" id="trainingOutcome">${journalIcon('check')}${outcome}</p>`:resume}
+        ${se?.fields.trainingClock?`<p class="muted" id="sessionClock">${esc(clockLabel(se.fields))}</p>`:''}
+        ${next||closed?'':se?'<p class="muted">本场没有待练动作。</p>':'<p class="warning">本次动作均已暂停，请先核对后续训练安排。</p>'}
+        <button class="btn ${closed?'secondary':'training-primary'}" id="beginSession">${journalIcon('training')}${closed?'查看本场':historical?'补记训练':se&&next?.pending===-1?(clockRunning(se.fields)?'结束训练':'查看本场'):se&&(clockRunning(se.fields)||next?.groups.some(Boolean))?'继续训练':'开始训练'}</button>`:`
         <h2>从确认后的计划开始</h2>
         <button class="btn secondary" id="startTrial">开始两周试行</button>`}
         ${!strength?'<button class="btn secondary" id="startStrength">查看并启用三日力量计划</button>':''}
@@ -168,8 +216,8 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     </div><div>
     ${strength?'<button type="button" class="inline" id="exerciseDemos">动作示范</button>':''}
     <details id="sessionActions" class="training-disclosure" ${actionsOpen?'open':''}>
-      <summary>${journalIcon('list')}本场动作 ${journalIcon('down')}</summary>
-      <div class="training-exercises">${plan.map(e=>planCard(e,exerciseLog(se,e))).join('')}</div>
+      <summary>${journalIcon('list')}${strength?'本场动作与重量':'本场动作'} ${journalIcon('down')}</summary>
+      <div class="training-exercises">${plan.map(e=>planCard(e,exerciseLog(se,e),loadHint(e))).join('')}</div>
     </details>
     <details id="planDetails" class="training-disclosure training-plan-details" ${detailsOpen?'open':''}>
     <summary>计划说明与历史 ${journalIcon('down')}</summary>
@@ -183,7 +231,7 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     if($('startStrength'))$('startStrength').onclick=openStrength;
     if(strength)$('exerciseDemos').onclick=openExerciseDemos;
     if($('strengthWorkout'))$('strengthWorkout').onchange=()=>{selectedWorkout=$('strengthWorkout').value;renderPlan();};
-    if(t){$('beginSession').onclick=()=>guard(beginTraining);$('todayFeedback').onclick=()=>openMeal(today());$('quickReview').onclick=()=>openReview(t.id);$('adjustTrial').onclick=openAdjust;}
+    if(t){$('beginSession').onclick=()=>guard(()=>clockRunning(se?.fields)&&!(next?.pending>=0)?finishTraining(se.id):beginTraining());$('todayFeedback').onclick=()=>openMeal(today());$('quickReview').onclick=()=>openReview(t.id);$('adjustTrial').onclick=openAdjust;}
     if(se){$('sessionFeedback').onclick=()=>openSession(se.id);$('newSession').onclick=()=>guard(()=>openNewStrengthSession());}
     $('legacyPlan').onclick=()=>{planMode=true;renderPlan();};
     document.querySelectorAll('[data-journal-exercise]').forEach(b=>b.onclick=()=>guard(()=>{if(!trial()){openStart();return;}const current=getOrCreateSession();openExercise(current.id,b.dataset.journalExercise);}));
@@ -202,10 +250,33 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     modal(`${date} · 每日记录`,`${sleepSection(state(),date)}${mealPhotoSection()}${select('feedbackScope','本次反馈覆盖时段',f.feedbackScope,'feedbackScope')}${select('afternoonHunger','下午是否饿（未到下午请留空）',f.afternoonHunger,'afternoonHunger')}${select('digestion','胃肠感受',f.digestion,'digestion')}${select('activity','当天主要活动',f.activity,'activity')}${input('badmintonMinutes','羽毛球时长（分钟，可留空）',f.badmintonMinutes,'number')}${select('hunger','饥饿与饱腹',f.hunger,'hunger')}${select('energy','精神状态',f.energy,'energy')}${select('sleepQuality','昨晚睡眠感受',f.sleepQuality,'sleep')}${input('cost','当天食用成本估算（元）',f.cost,'number')}<details><summary>三餐与份量 · 任选3个代表日详记</summary><p class="hint">普通日、力量训练日、羽毛球日各一次。可写近似份量；注明生／熟、包装总量与实际吃掉多少。</p>${area('breakfast','早餐',f.breakfast)}${area('lunch','午餐',f.lunch)}${area('dinner','晚餐',f.dinner)}${area('foodNotes','加餐、食量与包装说明',f.foodNotes)}${input('purchase','当天采购付款（元，与当天食用成本分开）',f.purchase,'number')}</details><details><summary>咖啡与睡眠补充</summary>${input('coffeeProduct','咖啡产品／规格',f.coffeeProduct)}${input('coffeeTime1','第一杯时间',f.coffeeTime1,'time')}${input('coffeeGrams1','第一杯咖啡粉（克，不确定留空）',f.coffeeGrams1,'number')}${input('coffeeTime2','第二杯时间',f.coffeeTime2,'time')}${input('coffeeGrams2','第二杯咖啡粉（克，不确定留空）',f.coffeeGrams2,'number')}</details><details><summary>可选体重与腰围</summary>${input('weight','体重（kg）',f.weight,'number')}${input('waist','腰围（cm）',f.waist,'number')}${area('measureNotes','测量条件与腰围位置',f.measureNotes,'同一时间、同一位置；不把不同测法直接比较。')}</details>${area('notes','自由补充：感受、问题或临时变化',f.notes)}<button class="btn" id="journalDone">完成本次填写</button>${entry(state(),id)?'<button class="inline" id="deleteDaily">删除这天误建的每日反馈</button>':''}`, '训练、饮食与恢复 · 按日期汇总');
     bindFields(id,'daily',{date});bindMealPhotos({date,getFields:()=>entry(state(),id)?.fields||{},saveFields:fields=>save(s=>writeEntry(s,id,'daily',{date,...fields})),notify});$('journalDone').onclick=()=>$('exerciseDialog').close();if($('deleteDaily'))$('deleteDaily').onclick=()=>{if(!confirm('删除这天的饮食与每日反馈？训练场次和动作记录仍保留。'))return;guard(()=>{transact(s=>removeEntry(s,id));$('exerciseDialog').close();});};
   }
+  function finishTraining(id){
+    if(!confirm('现在结束本场计时？已保存的组次会计入本场。'))return;
+    if(save(s=>endSessionClock(s,id),{requireCurrentAccountCache:true})===false)return;
+    if($('beginSession'))renderPlan();
+    openSession(id);
+  }
   function openSession(id){
     const se=entry(state(),id);if(!se)return;selectedSession=id;const f=se.fields;
-    modal(`${f.date} · 训练后反馈`,`${input('date','实际训练日期（可补记、改日期）',f.date,'date',`max="${today()}"`)}${input('time','实际训练时间（可选）',f.time,'time')}${select('status','本次训练状态',f.status,'status')}${input('minutes','正课实际耗时（分钟）',f.minutes,'number')}${input('sleepHours','训练前一晚睡眠（小时）',f.sleepHours,'number')}${select('pain','本次是否疼痛／明显不适',f.pain,'pain')}${area('painNotes','不适位置、出现在哪个动作',f.painNotes)}${area('reason','未训练、部分完成或提前结束的原因',f.reason)}${area('notes','训练感受与问题',f.notes)}<details><summary>补记／修改这次训练的动作</summary>${f.plan.map(p=>`<button class="btn secondary" data-session-exercise="${p.id}">${esc(p.name)}</button>`).join('')}</details><details id="recoveryFields"><summary>恢复反馈 · 下次训练前回顾，可补记</summary>${input('recoveryDate','恢复反馈日期',f.recoveryDate,'date',`max="${today()}"`)}${select('recoveryStatus','恢复与酸痛',f.recoveryStatus,'recovery')}${area('recoveryNotes','部位、持续时间、是否影响活动；近期羽毛球情况',f.recoveryNotes)}</details><button class="btn" id="journalDone">完成本次填写</button><button class="inline" id="deleteSession">删除这次误建的训练场次</button>`,'训练场次 · 可分次填写');
-    bindFields(id,'session');$('dialogContent').querySelectorAll('[data-session-exercise]').forEach(b=>b.onclick=()=>openExercise(id,b.dataset.sessionExercise));$('journalDone').onclick=()=>$('exerciseDialog').close();
+    const result=select('status','本次训练状态',f.status,'status');
+    const minutes=input('minutes','正课实际耗时（分钟）',f.minutes,'number',sessionMinutes(f)!=null?`placeholder="${sessionMinutes(f)}"`:'');
+    const dateTime=input('date','实际训练日期（可补记、改日期）',f.date,'date',`max="${today()}"`)+input('time','实际训练时间（可选）',f.time,'time');
+    const needsDuration=f.trainingClock?.endedAt&&sessionMinutes(f)==null;
+    const outcome=f.trainingClock
+      ? `${f.trainingClock.endedAt?`<p id="feedbackOutcome">本场 · ${esc(label('status',f.status))}</p>`:''}${needsDuration?minutes:''}<details><summary>修正状态、日期或耗时</summary>${dateTime}${result}${needsDuration?'':minutes}</details>`
+      : dateTime+result+minutes;
+    modal(`${f.date} · 训练后反馈`,`${f.trainingClock?`<p class="muted" id="feedbackClock">${esc(clockLabel(f))}</p>`:''}${clockRunning(f)?'<button class="btn secondary" id="finishTraining">结束训练</button>':''}${outcome}${input('sleepHours','训练前一晚睡眠（小时）',f.sleepHours,'number')}${select('pain','本次是否疼痛／明显不适',f.pain,'pain')}${area('painNotes','不适位置、出现在哪个动作',f.painNotes)}${area('reason','未训练、部分完成或提前结束的原因',f.reason)}${area('notes','训练感受与问题',f.notes)}<details><summary>补记／修改这次训练的动作</summary>${f.plan.map(p=>`<button class="btn secondary" data-session-exercise="${p.id}">${esc(p.name)}</button>`).join('')}</details><details id="recoveryFields"><summary>恢复反馈 · 下次训练前回顾，可补记</summary>${input('recoveryDate','恢复反馈日期',f.recoveryDate,'date',`max="${today()}"`)}${select('recoveryStatus','恢复与酸痛',f.recoveryStatus,'recovery')}${area('recoveryNotes','部位、持续时间、是否影响活动；近期羽毛球情况',f.recoveryNotes)}</details><button class="btn" id="journalDone">完成本次填写</button><button class="inline" id="deleteSession">删除这次误建的训练场次</button>`,'训练场次 · 可分次填写');
+    if($('finishTraining'))$('finishTraining').onclick=()=>finishTraining(id);
+    bindFields(id,'session');
+    const correctionFields=$('dialogContent').querySelectorAll('[data-field=status],[data-field=minutes]');
+    const refreshOutcome=()=>{
+      const saved=entry(state(),id)?.fields;
+      if($('feedbackOutcome'))$('feedbackOutcome').textContent='本场 · '+label('status',saved?.status);
+      if($('feedbackClock'))$('feedbackClock').textContent=clockLabel(saved);
+      if($('beginSession'))renderPlan();
+    };
+    correctionFields.forEach(field=>field.addEventListener('input',refreshOutcome));
+    $('dialogContent').querySelectorAll('[data-session-exercise]').forEach(b=>b.onclick=()=>openExercise(id,b.dataset.sessionExercise));$('journalDone').onclick=()=>$('exerciseDialog').close();
     $('deleteSession').onclick=()=>{if(!confirm('删除这次场次及其动作记录？删除状态会同步；已有导出备份不受影响。'))return;guard(()=>{transact(s=>{removeEntry(s,id);for(const p of f.plan)removeEntry(s,exerciseEntryId(id,p.id));});selectedSession=null;$('exerciseDialog').close();renderPlan();});};
   }
   function openQuickSet(sessionId,exerciseId,index){
@@ -226,34 +297,68 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     const weighted=['dbrow','rdl','lateral','rear'].includes(exerciseId);
     const followsPlate=exerciseId==='lateral'&&previous?.variant===plateVariant&&current.variant===plan.variant;
     const canReuseLoad=recorded==null&&current.load===plan.load&&previous&&(previous.variant===current.variant||followsPlate);
-    let actualVariant=canReuseLoad?previous.variant:current.variant;
     const load=canReuseLoad?previous.load||current.load:current.load;
-    const weight=kgOf(load)??'';
-    const standardWeightInput=weighted&&(!load||load===plan.load||!!weight);
-    const advice=weighted&&index===0&&recorded==null&&load==='待填写每只哑铃重量'
-      ?loadAdvice(state(),trial(),plan,session.fields.date):null;
+    const weight=kgOf(load);
+    const standardWeightInput=weighted&&(!load||load===plan.load||weight!==null||load===rodSetup||load.startsWith('每端装片 '));
+    const advice=standardWeightInput&&!canReuseLoad&&index===0&&recorded==null&&weight===null
+      ?loadAdvice(state(),state().journal.trials[session.fields.trialId],plan,session.fields.date):null;
+    const suggested=advice?.kind==='start'||advice?.kind==='hold'?advice.target:null;
+    let actualVariant=suggested?.variant??(canReuseLoad?previous.variant:current.variant);
+    let selectedSetup=suggested?.load===rodSetup?rodSetup:load;
+    const initialKg=weight??kgOf(suggested?.load);
+    const loadCaption=(kg,tag='')=>{
+      if(kg!==null){
+        const gear=actualVariant===plateVariant?' · 直接握片':actualVariant===bottleVariant?' · 水瓶':'';
+        return tag+kg+' kg／'+(gear?'手':'只')+gear;
+      }
+      if(selectedSetup===rodSetup)return tag+'每端装 1.25 kg';
+      if(advice?.kind==='check')return '先核对不适反馈';
+      if(!selectedSetup||selectedSetup==='待填写每只哑铃重量')return '填写单只实重';
+      return selectedSetup;
+    };
     const lastGroup=index===plan.sets-1;
-    const followUp=planOrder.some(item=>{
+    const earlierGroupPending=countedGroups(plan,log).slice(0,index).includes(false);
+    const followUp=earlierGroupPending||planOrder.some(item=>{
       if(item.id===exerciseId||item.paused)return false;
       const other=exerciseLog(session,item);
       return !['equipment','skipped'].includes(other?.fields.exerciseStatus)&&countedGroups(item,other).includes(false);
     });
+    const finishesClock=lastGroup&&!followUp&&clockRunning(session.fields);
     modal(plan.name,`
       <p class="muted">第 ${index+1} / ${plan.sets} 组 · 目标 ${plan.sides?'每侧 ':''}${plan.min}–${plan.max} 次${previousCount!=null?' · 上组 '+previousCount+' 次':''}</p>
       <form id="quickSetForm" class="set-card quick-set" novalidate>
-        ${weighted&&load===rodSetup?`<p class="muted">${esc(rodSetup)}。请称整只后填写。</p>`:''}
-        ${advice?`<p class="muted">${esc(advice.text)}</p>${advice.target?.variant===plateVariant&&advice.target.load==='单只 1.25 kg'?'<button class="inline" id="usePlateStart" type="button">本组用 1.25 kg 配重片</button>':''}`:''}
-        ${weighted&&(actualVariant!==plan.variant||[plateVariant,bottleVariant].includes(actualVariant))?`<p class="muted">${esc(actualVariant)}</p>`:''}
-        ${standardWeightInput?`${weight?`<details><summary>单只 ${weight} kg · 更改重量</summary>`:''}<label class="journal-field" for="quickWeight">单只重量（kg）<input class="text-input" id="quickWeight" inputmode="decimal" maxlength="12" value="${weight}"></label>${weight?'</details>':''}`:`<p class="muted">${esc(load)}</p>`}
+        ${standardWeightInput?`<details id="quickLoad"><summary id="quickLoadLabel">${esc(loadCaption(initialKg,suggested?'建议 ':canReuseLoad?'同上组 · ':''))}</summary>
+          <label class="journal-field">本组重量（kg）
+            <input class="text-input" id="quickWeight" inputmode="decimal" maxlength="12" value="${initialKg??''}">
+          </label>
+          <label class="journal-field">器械与档位
+            <select class="text-input" id="quickLoadTier">
+              <option value="">选择档位</option>
+              <option value="dumbbell">哑铃 · 手填整只实重</option>
+              ${exerciseId==='lateral'?[1.25,2.5,3].map(kg=>`<option value="plate:${kg}">每手直接握 ${kg} kg 配重片</option>`).join(''):''}
+              ${exerciseId==='rear'?'<option value="bottle">水瓶 · 手填每手实重</option>':''}
+              <optgroup label="短杆 · 1.25、2.5、3 kg 套装">
+                ${matchingDumbbellPlates.map((plates,i)=>`<option value="rod:${i}" data-rod-index="${i}">${plates.length?'每端 '+plates.join('＋')+' kg':'空杆＋锁扣'}</option>`).join('')}
+              </optgroup>
+            </select>
+          </label>
+          <label class="journal-field">空杆＋两锁扣实重（kg，可选）
+            <input class="text-input" id="quickHandleKg" inputmode="decimal" maxlength="12" value="${esc(handleKg)}">
+          </label>
+          <p class="muted" id="quickLoadHint">装片前核对杆的承重与锁扣位置。填写空杆和锁扣的实重后，可计算每只的总重量。</p>
+          ${advice?`<p class="muted">${esc(advice.text)}</p>`:''}
+          ${advice?.kind==='lower'&&advice.target?.variant===plateVariant?'<button class="inline" id="usePlateStart" type="button">本组用 1.25 kg 配重片</button>':''}
+        </details>`:`<p class="muted">${esc(load)}</p>`}
         <label class="journal-field" for="quickReps"><span id="quickRepLabel">${plan.sides?'每侧完成次数':'实际次数'}</span><input class="text-input" id="quickReps" inputmode="numeric" maxlength="3" value="${recorded??''}"></label>
         ${plan.sides?'<label><input type="checkbox" id="differentSides"> 左右次数不同</label><div id="rightSideField" hidden><label class="journal-field" for="quickRight">右侧完成次数<input class="text-input" id="quickRight" inputmode="numeric" maxlength="3"></label></div>':''}
         ${weighted||lastGroup?`<details><summary>${lastGroup?'填写余力（可选）':'动作反馈（可选）'}</summary>${lastGroup?select('rir','还能规范做几次',current.rir,'rir'):''}${weighted?select('quality','本组动作质量',current.quality,'quality'):''}</details>`:''}
-        <button class="btn" type="submit">${lastGroup?(followUp?'完成，下一动作':'结束，查看本场'):'记下，下一组'}</button>
+        <button class="btn" type="submit">${lastGroup?(followUp?'完成，下一动作':finishesClock?'完成并结束训练':'结束，查看本场'):'记下，下一组'}</button>
       </form>
       <details class="exercise-help"><summary>动作示范与要点</summary><p>${esc(plan.cue.replace('左右分别做2组、分别记录。','两侧各做相同组数，次数一致时填一次。').replace('左右分别记录。','两侧次数一致时填一次。'))}</p>${exerciseDemoHTML(exerciseId)}</details>
       <div class="row quick-set-actions">
         ${index?'<button class="inline" id="quickSetBack" type="button">返回上一组</button>':''}
-        <button class="inline" id="quickSetDetails" type="button">记录变化或补记组次</button>
+        <button class="inline" id="quickSetDetails" type="button">缺器械、跳过或补记组次</button>
+        ${clockRunning(session.fields)?'<button class="inline" id="quickFinishTraining" type="button">提前结束训练</button>':''}
       </div>`,'逐组实际记录');
     $('journalSave').textContent='点完成后保存本组';
     bindExerciseDemo($('exerciseDialog'),exerciseId);
@@ -265,10 +370,61 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
       $('quickRepLabel').textContent=different?'左侧完成次数':'每侧完成次数';
       $('rightSideField').hidden=!different;
     };
-    if($('usePlateStart'))$('usePlateStart').onclick=()=>{
-      actualVariant=plateVariant;$('quickWeight').value='1.25';
-      $('usePlateStart').textContent='已选每手持片';$('quickReps').focus();
+    if($('quickFinishTraining'))$('quickFinishTraining').onclick=()=>finishTraining(sessionId);
+    const readKg=raw=>{
+      const value=raw?.trim().replace(',','.');
+      return value&&/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(value)&&Number(value)>0&&Number(value)<=1000?Number(value):null;
     };
+    if(standardWeightInput){
+      const weightInput=$('quickWeight'),tier=$('quickLoadTier'),rod=$('quickHandleKg');
+      const refreshCaption=()=>{
+        weightInput.readOnly=actualVariant===plateVariant;
+        $('quickLoadLabel').textContent=loadCaption(readKg(weightInput.value));
+      };
+      const refreshOptions=()=>{
+        const handle=readKg(rod.value);
+        tier.querySelectorAll('[data-rod-index]').forEach(option=>{
+          const plates=matchingDumbbellPlates[Number(option.dataset.rodIndex)];
+          const total=plateWeightPerDumbbell(plates);
+          const setup=plates.length?'每端 '+plates.join('＋')+' kg':'空杆＋锁扣';
+          option.textContent=handle?`${Number((handle+total).toFixed(3))} kg／只 · ${setup}`:setup+' · 配重 '+total+' kg／只';
+        });
+      };
+      const selectTier=()=>{
+        const [type,value]=tier.value.split(':');
+        if(!type)return;
+        selectedSetup=plan.load;
+        if(type==='plate'){
+          actualVariant=plateVariant;
+          weightInput.value=value;
+        }else if(type==='bottle'){
+          actualVariant=bottleVariant;
+          weightInput.value='';
+        }else{
+          actualVariant=plan.variant===plateVariant||plan.variant===bottleVariant
+            ?STRENGTH_PLAN.find(item=>item.id===exerciseId).variant:plan.variant;
+          weightInput.value='';
+          if(type==='rod'){
+            const plates=matchingDumbbellPlates[Number(value)],handle=readKg(rod.value);
+            selectedSetup='每端装片 '+(plates.length?plates.join('＋')+' kg':'0 kg');
+            if(handle)weightInput.value=String(Number((handle+plateWeightPerDumbbell(plates)).toFixed(3)));
+          }
+        }
+        refreshCaption();
+      };
+      refreshOptions();
+      weightInput.readOnly=actualVariant===plateVariant;
+      tier.onchange=selectTier;
+      rod.oninput=()=>{
+        handleKg=rod.value;refreshOptions();
+        if(tier.value.startsWith('rod:'))selectTier();
+      };
+      weightInput.oninput=refreshCaption;
+      if($('usePlateStart'))$('usePlateStart').onclick=()=>{
+        tier.value='plate:1.25';selectTier();
+        $('quickLoad').open=false;$('quickReps').focus();
+      };
+    }
     form.onsubmit=event=>{
       event.preventDefault();
       if(!form.isConnected)return;
@@ -280,7 +436,7 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
       const validCount=v=>/^\d{1,3}$/.test(v)&&Number(v)<=600;
       const issues=!validCount(reps)&&!(different&&reps===''&&validCount(right))?['次数请填写 0–600 的整数',$('quickReps')]:
         different&&right!==''&&!validCount(right)?['右侧次数请填写 0–600 的整数',$('quickRight')]:
-        rawWeight&&!/^(?:\d+(?:\.\d+)?|\.\d+)$/.test(rawWeight)?['重量请输入数字，单位为公斤',weightInput]:null;
+        rawWeight&&readKg(rawWeight)===null?['重量请填写大于 0 且不超过 1000 的公斤数',weightInput]:null;
       if(issues){
         const [message,field]=issues;
         $('journalSave').textContent=message;$('journalSave').classList.add('error');
@@ -290,6 +446,7 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
       const result=save(s=>{
         const latestSession=entry(s,sessionId),latestLog=entry(s,id);
         if(!latestSession||s.journal?.entries[id]?.deleted||
+          JSON.stringify(latestSession.fields.trainingClock)!==JSON.stringify(session.fields.trainingClock)||
           JSON.stringify(latestSession.fields.plan.find(item=>item.id===exerciseId))!==JSON.stringify(session.fields.plan.find(item=>item.id===exerciseId))||
           currentPlan(trial(),latestSession).find(item=>item.id===exerciseId)?.paused||
           ['equipment','skipped'].includes(latestLog?.fields.exerciseStatus)||
@@ -299,17 +456,24 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
         const updated=copy(latestLog?.fields.rows||rows);
         Object.assign(updated[index],plan.sides?{left:reps===''?null:Number(reps),right:right===''?null:Number(right)}:{reps:Number(reps)});
         if(weightInput&&rawWeight)updated[index].load=Number(rawWeight)===weight?load:'单只 '+Number(rawWeight)+' kg';
-        else updated[index].load=weightInput?plan.load:load;
+        else updated[index].load=weightInput?selectedSetup:load;
         updated[index].variant=actualVariant;
         if(weighted)updated[index].quality=form.querySelector('[data-field=quality]').value;
         if(lastGroup)updated[index].rir=form.querySelector('[data-field=rir]').value;
         writeEntry(s,id,'exercise',{sessionId,exerciseId,rows:updated});
+        if(finishesClock){
+          const pending=nextExercise(currentPlan(trial(),latestSession),latestSession,s)?.pending;
+          if(!(pending>=0))endSessionClock(s,sessionId);
+        }
       },{requireCurrentAccountCache:true});
       if(result===false)return;
       const updatedSession=entry(state(),sessionId);
       const next=nextExercise(currentPlan(trial(),updatedSession),updatedSession);
       if(next?.pending>=0)openQuickSet(sessionId,next.exercise.id,next.pending);
-      else openSession(sessionId);
+      else{
+        if($('beginSession'))renderPlan();
+        openSession(sessionId);
+      }
     };
   }
   function openExercise(sessionId,exerciseId,pending=-1){
@@ -318,7 +482,7 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     const id=exerciseEntryId(sessionId,exerciseId),f=entry(state(),id)?.fields||{},rows=f.rows||blankRows(plan);
     const rowHTML=(r,i)=>`<fieldset class="set-card"><legend>第${i+1}组${i>=plan.sets?' · 额外一组／同组分段':''}</legend><label class="journal-field">阻力规格／握距<input class="text-input" data-row="${i}" data-key="load" maxlength="200" value="${esc(r.load)}"></label><div class="journal-columns">${plan.sides?`<label>左侧次数<input class="text-input" data-row="${i}" data-key="left" type="number" min="0" max="600" step="1" value="${r.left??''}"></label><label>右侧次数<input class="text-input" data-row="${i}" data-key="right" type="number" min="0" max="600" step="1" value="${r.right??''}"></label>`:`<label>实际次数<input class="text-input" data-row="${i}" data-key="reps" type="number" min="0" max="600" step="1" value="${r.reps??''}"></label>`}<label>还能规范做几次<select class="text-input" data-row="${i}" data-key="rir"><option value="">未填写</option>${Object.entries(LABELS.rir).map(([v,t])=>`<option value="${v}" ${r.rir===v?'selected':''}>${t}</option>`).join('')}</select></label></div><details><summary>版本、休息与动作质量</summary><label class="journal-field">实际动作版本<input class="text-input" data-row="${i}" data-key="variant" maxlength="200" value="${esc(r.variant)}"></label><label class="journal-field">组间休息（秒）<input class="text-input" data-row="${i}" data-key="rest" type="number" min="0" max="600" step="1" value="${r.rest??''}"></label><label class="journal-field">动作质量<select class="text-input" data-row="${i}" data-key="quality"><option value="">未填写</option>${Object.entries(LABELS.quality).map(([v,t])=>`<option value="${v}" ${r.quality===v?'selected':''}>${t}</option>`).join('')}</select></label></details></fieldset>`;
     const demonstration=exerciseDemoHTML(exerciseId);
-    modal(plan.name,`<p class="muted">${se.fields.date} · 当时目标 ${plan.sets}组 × ${plan.sides?'每侧':''}${plan.min}–${plan.max}次 · 休息${plan.rest}秒左右</p><details class="exercise-help"><summary>${demonstration?'动作示范与填写说明':'动作要点与填写说明'}</summary><p>${esc(plan.cue)}</p>${demonstration}<p>空白是未填，0是实际做了0次。余力估不准选“不确定”。同组换版本时另加一行并注明分段。</p></details><div id="trialSetRows">${rows.map(rowHTML).join('')}</div><button class="inline" id="addSetRow">＋ 添加一行：额外组或同组换版本</button><details><summary>完成情况与补充</summary>${select('exerciseStatus','这个动作的完成情况',f.exerciseStatus,'exerciseStatus')}${area('notes','动作问题／分段说明／未完成原因',f.notes)}</details><button class="inline" id="backSession">返回训练后反馈／次日恢复</button><button class="btn" id="journalDone">完成本次填写</button>`,'逐组实际记录');
+    modal(plan.name,`<p class="muted">${se.fields.date} · 当时目标 ${plan.sets}组 × ${plan.sides?'每侧':''}${plan.min}–${plan.max}次 · 休息${plan.rest}秒左右</p><details class="exercise-help"><summary>${demonstration?'动作示范与填写说明':'动作要点与填写说明'}</summary><p>${esc(plan.cue)}</p>${demonstration}<p>空白是未填，0是实际做了0次。余力估不准选“不确定”。同组换版本时另加一行并注明分段。</p></details><div id="trialSetRows">${rows.map(rowHTML).join('')}</div><button class="inline" id="addSetRow">＋ 添加一行：额外组或同组换版本</button><details><summary>例外与补充${exerciseOutcome(plan,f)?' · '+esc(label('exerciseStatus',exerciseOutcome(plan,f))):''}</summary>${select('exerciseStatus','这个动作的完成情况',f.exerciseStatus,'exerciseStatus')}${area('notes','动作问题／分段说明／未完成原因',f.notes)}</details><button class="inline" id="backSession">返回训练后反馈／次日恢复</button><button class="btn" id="journalDone">完成本次填写</button>`,'逐组实际记录');
     bindExerciseDemo($('exerciseDialog'),exerciseId);
     bindFields(id,'exercise',{sessionId,exerciseId,rows:copy(rows)});$('backSession').onclick=()=>openSession(sessionId);
     $('dialogContent').querySelectorAll('[data-row]').forEach(el=>el.oninput=()=>{
@@ -358,7 +522,7 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     const feedback=q.list.filter(e=>!e.fields.pain||!e.fields.recoveryStatus);
     const discomfort=q.list.filter(se=>se.fields.pain==='yes'||String(se.fields.painNotes||'').trim()||se.fields.recoveryStatus==='affected'||sessionExercises(state(),se).some(({log})=>log?.fields.rows?.some(r=>r.quality==='pain')));
     const discomfortNotice=discomfort.length?`<p class="warning">待优先复核的不适记录：${discomfort.map(se=>esc(se.fields.date)+(se.fields.workout?' · '+esc(se.fields.workout):'')).join('、')}。请核对逐场不适与动作记录。</p>`:'';
-    const sessionRecords=`${q.list.length?q.list.map(se=>`<details><summary>${esc(se.fields.date)}${se.fields.workout?' · '+esc(se.fields.workout):''} · ${label('status',se.fields.status)}</summary><p>正课 ${se.fields.minutes??'未填写'}${se.fields.minutes==null?'':' 分钟'} · 疼痛：${label('pain',se.fields.pain)} · 恢复：${label('recovery',se.fields.recoveryStatus)}</p>${se.fields.painNotes?`<p>不适说明：${esc(se.fields.painNotes)}</p>`:''}${se.fields.recoveryNotes?`<p>恢复补充：${esc(se.fields.recoveryNotes)}</p>`:''}${se.fields.reason?`<p>未完成原因：${esc(se.fields.reason)}</p>`:''}${sessionExercises(state(),se).map(({plan,log})=>`<p><b>${esc(plan.name)}</b><br>${log?.fields.rows?.length?log.fields.rows.map((r,i)=>`第${i+1}组：${plan.sides?'左 '+(r.left??'未填')+'／右 '+(r.right??'未填'):(r.reps??'未填')} 次 · ${esc(r.load||'负重未填')} · ${esc(r.variant||'版本未填')} · ${label('rir',r.rir)} · ${label('quality',r.quality)}`).join('<br>'):'次数未填写'}${log?.fields.notes?'<br>补充：'+esc(log.fields.notes):''}</p>`).join('')}${se.fields.notes?`<p>${esc(se.fields.notes)}</p>`:''}</details>`).join(''):'<p>尚未记录训练场次。</p>'}`;
+    const sessionRecords=`${q.list.length?q.list.map(se=>`<details><summary>${esc(se.fields.date)}${se.fields.workout?' · '+esc(se.fields.workout):''} · ${label('status',se.fields.status)}</summary><p>正课 ${sessionMinutes(se.fields)??'未填写'}${sessionMinutes(se.fields)==null?'':' 分钟'} · 疼痛：${label('pain',se.fields.pain)} · 恢复：${label('recovery',se.fields.recoveryStatus)}</p>${se.fields.painNotes?`<p>不适说明：${esc(se.fields.painNotes)}</p>`:''}${se.fields.recoveryNotes?`<p>恢复补充：${esc(se.fields.recoveryNotes)}</p>`:''}${se.fields.reason?`<p>未完成原因：${esc(se.fields.reason)}</p>`:''}${sessionExercises(state(),se).map(({plan,log})=>`<p><b>${esc(plan.name)}</b><br>${log?.fields.rows?.length?log.fields.rows.map((r,i)=>`第${i+1}组：${plan.sides?'左 '+(r.left??'未填')+'／右 '+(r.right??'未填'):(r.reps??'未填')} 次 · ${esc(r.load||'负重未填')} · ${esc(r.variant||'版本未填')} · ${label('rir',r.rir)} · ${label('quality',r.quality)}`).join('<br>'):'次数未填写'}${log?.fields.notes?'<br>补充：'+esc(log.fields.notes):''}</p>`).join('')}${se.fields.notes?`<p>${esc(se.fields.notes)}</p>`:''}</details>`).join(''):'<p>尚未记录训练场次。</p>'}`;
     const dailyRecords=`<p>有每日记录 ${q.days.length} 天，其中导入睡眠 ${q.days.filter(d=>d.fields.samsungSleep||d.fields.healthConnectSleep||d.fields.healthConnectSleepParts).length} 天。</p>${q.days.length?`<details><summary>查看每日反馈</summary>${q.days.map(d=>`<div class="log"><b>${d.fields.date}</b>${sleepSection(state(),d.fields.date)}<p>精神：${label('energy',d.fields.energy)} · 饥饿：${label('hunger',d.fields.hunger)} · 睡眠：${label('sleep',d.fields.sleepQuality)}</p><p>${['breakfast','lunch','dinner'].map((key,i)=>`${['早餐','午餐','晚餐'][i]}：${esc(d.fields[key]||'内容未填写')} · 实际食用：${label('mealAmount',d.fields[key+'Amount'])}${d.fields[key+'Note']?' · '+esc(d.fields[key+'Note']):''}`).join('<br>')}</p>${d.fields.snackAmount||d.fields.snackNote?`<p>加餐：${esc(d.fields.snackNote||'内容未填写')} · 实际食用：${label('mealAmount',d.fields.snackAmount)}</p>`:''}${d.fields.foodNotes?`<p>份量补充：${esc(d.fields.foodNotes)}</p>`:''}${d.fields.notes?`<p>${esc(d.fields.notes)}</p>`:''}</div>`).join('')}</details>`:''}`;
     const summary=`<section id="reviewSummary">
       <div class="review-date">
