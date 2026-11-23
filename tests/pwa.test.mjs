@@ -16,5 +16,15 @@ test('external, auth and non-GET requests are not intercepted',()=>{const s=sand
 
 test('private manifest link explicitly includes login credentials',()=>{const html=fs.readFileSync(new URL('index.html',dir),'utf8');assert.match(html,/<link[^>]*rel="manifest"[^>]*crossorigin="use-credentials"/);});
 
-test('offline navigation with a version query reopens the cached training shell',async()=>{const s=sandbox(async()=>{throw Error('offline')});await(await s.caches.open(source.match(/const CACHE='([^']+)'/)[1])).put('/',response('/'));let served;s.handlers.fetch({request:{method:'GET',url:'https://test.local/?v=1.1.1',mode:'navigate'},respondWith:p=>served=p});assert(served);assert.match(await(await served).text(),/data-training-shell/);});
+test('offline launch URLs with a version query reopen the cached training shell',async()=>{
+  const offline=sandbox(async()=>{throw Error('offline')});
+  const cache=await offline.caches.open(source.match(/const CACHE='([^']+)'/)[1]);
+  await cache.put('/',response('/'));
+  for(const path of ['/?v=1.1.1','/index.html?v=1.1.1']){
+    let served;
+    offline.handlers.fetch({request:{method:'GET',url:'https://test.local'+path,mode:'navigate'},respondWith:p=>served=p});
+    assert(served,path);
+    assert.match(await(await served).text(),/data-training-shell/);
+  }
+});
 test('unresponsive network times out to the cached shell',async()=>{const s=sandbox((_,options)=>new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Error('timeout')))));await(await s.caches.open(source.match(/const CACHE='([^']+)'/)[1])).put('/',response('/'));let served;const start=Date.now();s.handlers.fetch({request:{method:'GET',url:'https://test.local/',mode:'navigate'},respondWith:p=>served=p});assert.match(await(await served).text(),/data-training-shell/);assert(Date.now()-start<5000);});

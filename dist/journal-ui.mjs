@@ -209,16 +209,16 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
         <button class="inline" id="sessionFeedback">${journalIcon('recovery')}训练后反馈</button>
         <button class="inline" id="newSession">${journalIcon('plus')}${historical?'新建今天训练':strength?'新建场次 · 选表':'新建场次'}</button>
       </div>`:''}
-      ${t?`<div class="training-quick">
-        <button class="btn secondary" id="todayFeedback">${journalIcon('camera')}记一餐</button>
-        <button class="btn secondary" id="quickReview">${journalIcon('review')}${strength?'本周复盘':'阶段复盘'}</button>
-      </div>`:''}
     </div><div>
-    ${strength?'<button type="button" class="inline" id="exerciseDemos">动作示范</button>':''}
     <details id="sessionActions" class="training-disclosure" ${actionsOpen?'open':''}>
       <summary>${journalIcon('list')}${strength?'本场动作与重量':'本场动作'} ${journalIcon('down')}</summary>
       <div class="training-exercises">${plan.map(e=>planCard(e,exerciseLog(se,e),loadHint(e))).join('')}</div>
     </details>
+      ${t?`<div class="training-quick">
+        <button class="btn secondary" id="todayFeedback">${journalIcon('camera')}记一餐</button>
+        <button class="btn secondary" id="quickReview">${journalIcon('review')}${strength?'本周复盘':'阶段复盘'}</button>
+      </div>`:''}
+    ${strength?'<button type="button" class="inline" id="exerciseDemos">动作示范</button>':''}
     <details id="planDetails" class="training-disclosure training-plan-details" ${detailsOpen?'open':''}>
     <summary>计划说明与历史 ${journalIcon('down')}</summary>
     <p>${strength?'周一 A · 周三 B · 周五 C':'周二、周四全身训练'} · 周末一次羽毛球。可按恢复情况顺延。</p>
@@ -502,9 +502,19 @@ export function mountJournal({getState,transact,restoreRecords,notify,download,l
     }
   }
   function renderRecords(){
-    const t=trial(),list=sessions(state()).filter(e=>e.fields.date===selectedDate);
+    const t=trial(),allSessions=sessions(state()),list=allSessions.filter(e=>e.fields.date===selectedDate);
     const daily=entry(state(),'daily:'+selectedDate),days=Object.values(state().journal?.entries||{}).filter(e=>!e.deleted&&e.kind==='daily').sort((a,b)=>b.fields.date.localeCompare(a.fields.date));
-    $('main').innerHTML=`<div class="eyebrow">训练 · 饮食 · 恢复</div><h1>每日记录</h1><a class="btn" id="oneTapSleep" href="#" hidden>一键导入近 7 天睡眠</a><div id="oneTapSleepResult" class="hint" role="status"></div><div class="journal-actions"><button class="inline" id="importHealthSleep">导入 Health Connect 睡眠</button><button class="inline" id="importSleep">导入三星睡眠 ZIP</button></div><label class="journal-field">选择日期<input class="text-input" type="date" id="journalDate" value="${selectedDate}" max="${today()}"></label><section class="card"><div class="row"><b>${selectedDate}</b><span class="muted">${daily?'已有每日反馈':'每日反馈未填写'}</span></div>${sleepSection(state(),selectedDate)}<button class="btn" id="editDaily">填写饮食与每日反馈</button>${list.map(e=>`<button class="btn secondary" data-session="${e.id}">训练场次 · ${e.fields.workout?e.fields.workout+' · ':''}${label('status',e.fields.status)} · ${e.fields.recoveryStatus?'已有恢复反馈':'恢复待补'}</button>`).join('')}${t&&(!isStrength(t)||selectedDate>=t.start)?'<button class="inline" id="additionalSession">＋ 记录这天的另一次训练</button>':''}</section>${t?`<section class="card"><h3>阶段与每周复盘</h3><p class="muted">三日力量阶段按所选日期所在周汇总；旧试行仍按原阶段导出。补记后可重新生成。</p><select class="text-input" id="reviewTrial">${Object.values(state().journal.trials).sort((a,b)=>b.created.localeCompare(a.created)).map(x=>`<option value="${x.id}" ${x.id===t.id?'selected':''}>${x.start} — ${isStrength(x)?'三日力量 · 持续':x.end}</option>`).join('')}</select><button class="btn secondary" id="reviewTrialButton">查看／导出阶段复盘</button></section>`:''}<details><summary>最近的训练与每日反馈</summary>${sessions(state()).slice(-30).reverse().map(e=>`<button class="journal-log" data-session="${e.id}">${esc(e.fields.date)} · 训练 · ${label('status',e.fields.status)}</button>`).join('')}${days.slice(0,30).map(e=>`<button class="journal-log" data-day="${esc(e.fields.date)}">${esc(e.fields.date)} · 饮食与每日反馈</button>`).join('')}</details><div class="journal-actions"><button class="inline" id="legacyHistory">查看原单动作历史</button>${!isStrength(t)?'<button class="inline" id="newTrial">查看三日力量阶段</button>':''}</div>`;
+    $('main').innerHTML=`<div class="eyebrow">训练 · 饮食 · 恢复</div><h1>每日记录</h1>
+      <label class="journal-field">选择日期<input class="text-input" type="date" id="journalDate" value="${selectedDate}" max="${today()}"></label>
+      <section class="card"><div class="row"><b>${selectedDate}</b><span class="muted">${daily?'已有每日反馈':'每日反馈未填写'}</span></div>
+      ${!list.length?'<p class="muted">这一天还没有训练场次。</p>':''}${sleepSection(state(),selectedDate)}
+      ${list.map(e=>`<button class="btn secondary" data-session="${e.id}">训练场次 · ${e.fields.workout?e.fields.workout+' · ':''}${label('status',e.fields.status)} · ${e.fields.recoveryStatus?'已有恢复反馈':'恢复待补'}</button>`).join('')}
+      <button class="btn" id="editDaily">填写饮食与每日反馈</button>
+      ${t&&(!isStrength(t)||selectedDate>=t.start)?'<button class="inline" id="additionalSession">＋ 记录这天的另一次训练</button>':''}</section>
+      ${t?`<section class="card"><h3>阶段与每周复盘</h3><p class="muted">三日力量阶段按所选日期所在周汇总；旧试行仍按原阶段导出。补记后可重新生成。</p><select class="text-input" id="reviewTrial">${Object.values(state().journal.trials).sort((a,b)=>b.created.localeCompare(a.created)).map(x=>`<option value="${x.id}" ${x.id===t.id?'selected':''}>${x.start} — ${isStrength(x)?'三日力量 · 持续':x.end}</option>`).join('')}</select><button class="btn secondary" id="reviewTrialButton">查看／导出阶段复盘</button></section>`:''}
+      ${allSessions.length||days.length?`<details><summary>最近的训练与每日反馈</summary>${allSessions.slice(-30).reverse().map(e=>`<button class="journal-log" data-session="${e.id}">${esc(e.fields.date)} · 训练 · ${label('status',e.fields.status)}</button>`).join('')}${days.slice(0,30).map(e=>`<button class="journal-log" data-day="${esc(e.fields.date)}">${esc(e.fields.date)} · 饮食与每日反馈</button>`).join('')}</details>`:''}
+      <a class="btn" id="oneTapSleep" href="#" hidden>一键导入近 7 天睡眠</a><div id="oneTapSleepResult" class="hint" role="status"></div><div class="journal-actions"><button class="inline" id="importHealthSleep">导入 Health Connect 睡眠</button><button class="inline" id="importSleep">导入三星睡眠 ZIP</button></div>
+      <div class="journal-actions"><button class="inline" id="legacyHistory">查看原单动作历史</button>${!isStrength(t)?'<button class="inline" id="newTrial">查看三日力量阶段</button>':''}</div>`;
     $('journalDate').onchange=()=>{const value=$('journalDate').value;if(!dateOK(value)||value>today()){notify('请选择有效日期');return;}selectedDate=value;renderRecords();};
     $('editDaily').onclick=()=>openDaily(selectedDate);
     bindSleepImport({state,save,modal,notify,refresh:renderRecords});
