@@ -9,7 +9,7 @@
 
 在线使用：[mantou · 训练卡](https://mantou-training-offline.vercel.app/)。
 
-当前应用为 `2.4.2`；GitHub Release `v2.0.0` 是历史发行包。源码、部署与正式账号验收分别见[版本与验收入口](docs/releases.md)。
+当前源码版本见 [package.json](package.json) 的 `version` 字段；GitHub Release `v2.0.0` 是历史发行包。源码、部署与正式账号验收分别见[版本与验收入口](docs/releases.md)。
 
 ## 三日力量阶段（2.4）
 
